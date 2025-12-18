@@ -1,6 +1,8 @@
 import numpy as np
 import gymnasium as gym
 import torchvision.transforms as T
+from stable_baselines3.common.monitor import Monitor
+from collections import deque
 
 # 要改
 class PreprocessObsWrapper(gym.ObservationWrapper):
@@ -216,14 +218,17 @@ class RewardOverrideWrapper(gym.Wrapper):
     def __init__(
         self,
         env,
-        win_reward: float = 400.0,
+        win_reward: float = 500.0,
     ):
         super().__init__(env)
         self.win_reward = win_reward
         self._prev_score = None
+        self._prev_x = None
+        self._prev_time = None
 
     def _reset_trackers(self, info):
         self._prev_score = info.get("score", 0)
+        self._prev_x = info.get("x_pos", 0)
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -238,18 +243,34 @@ class RewardOverrideWrapper(gym.Wrapper):
             info = {}
 
         reward = 0.0
+
+        # Distance reward
+        x_pos = info.get("x_pos", 0)
+        if self._prev_x is not None:
+            dx = x_pos - self._prev_x
+            reward += dx * 1.0
+        self._prev_x = x_pos
+
+        # Time Penalty
+        reward -= 0.05
+
         # Reward for score increments
-        score = info.get("score")
+        score = info.get("score", 0)
         if score is not None:
             if self._prev_score is None:
                 self._prev_score = score
             else:
                 score_delta = score - self._prev_score
                 if score_delta > 0:
-                    reward += 10.0
+                    reward += score_delta * 0.1
                 self._prev_score = score
-        time_left = info.get("time_left", None)
         
+        # Death & Win Handling
+        if info.get("death", False):
+            reward -= 50.0
+        elif terminated and not truncated:
+            reward += self.win_reward
+
         if terminated or truncated:
             self._reset_trackers(info)
 
@@ -262,6 +283,38 @@ class InfoLogger(gym.Wrapper):
         if reward > 0 or terminated:
             print(info)
         return obs, reward, terminated, truncated, info
+
+# [wrappers.py]
+from collections import deque # 需在文件頂部新增 import
+
+class FrameStackWrapper(gym.Wrapper):
+    """
+    將連續的 n 幀畫面堆疊在一起，增加動態資訊。
+    """
+    def __init__(self, env, n_frames=4):
+        super().__init__(env)
+        self.n_frames = n_frames
+        self.frames = deque([], maxlen=n_frames)
+        
+        # 更新 observation_space 的維度 (C*n, H, W)
+        low = np.repeat(env.observation_space.low, n_frames, axis=0)
+        high = np.repeat(env.observation_space.high, n_frames, axis=0)
+        self.observation_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
+
+    def reset(self, **kwargs):
+        obs, info = self.env.reset(**kwargs)
+        for _ in range(self.n_frames):
+            self.frames.append(obs)
+        return self._get_obs(), info
+
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        self.frames.append(obs)
+        return self._get_obs(), reward, terminated, truncated, info
+
+    def _get_obs(self):
+        # 在通道維度 (axis=0) 進行拼接
+        return np.concatenate(list(self.frames), axis=0)
 
 COMBOS = [
     [],                  # 0: NOOP
@@ -277,10 +330,14 @@ COMBOS = [
     ["LEFT", "B"],       # 11: 左 + 跑
     ["LEFT", "A", "B"],  # 12: 左 + 跳 + 跑
 ]
+
 import retro
+
 def make_base_env(game: str, state: str):
     env = retro.make(game=game, state=state, render_mode="rgb_array")
+    env = Monitor(env)
     env = PreprocessObsWrapper(env)
+    env = FrameStackWrapper(env, n_frames=4)
     env = DiscreteActionWrapper(env, COMBOS)
     env = ExtraInfoWrapper(env)
     env = LifeTerminationWrapper(env)

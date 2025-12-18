@@ -23,8 +23,8 @@ class VisionBackboneExtractor(BaseFeaturesExtractor):
         # 這裡!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         #######################################
         self.backbone = timm.create_model(
-            "YOUR_MODEL_NAME_HERE",
-            pretrained=True,
+            "resnet18",
+            pretrained=False,
             in_chans=channels,
             features_only=True,
             out_indices=[-1],
@@ -52,9 +52,12 @@ class VisionScalarExtractor(BaseFeaturesExtractor):
         # Define a simple MLP for scalar data
         ######################################
         self.scalar_net = nn.Sequential(
-            # ....
-        ) #幻境資訊，step也要
-        # 網路
+            nn.Linear(scalar_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU()
+        ) # 環境資訊，step也要
+        # 神經網路
         ######################################
         ######################################
         self._features_dim = self.image_extractor.features_dim + 64
@@ -85,7 +88,7 @@ class CustomPPO(OnPolicyAlgorithm):
         # 這後面不是很重要
         clip_range: Union[float, Schedule] = 0.2,
         normalize_advantage: bool = True,
-        ent_coef: float = 0.0,
+        ent_coef: float = 0.08,
         vf_coef: float = 0.5,
         kl_coef: float = 0.0,
         max_grad_norm: float = 0.5,
@@ -192,9 +195,10 @@ class CustomPPO(OnPolicyAlgorithm):
                 # clipped surrogate loss
                 ##############################
                 # YOUR CODE HERE
-                ##############################
                 # hints: use torch.clamp, torch.min, and negative sign for gradient ascent
-                policy_loss = ...
+                surr1 = advantages * ratio
+                surr2 = advantages * torch.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
+                policy_loss = -torch.min(surr1, surr2).mean() # 注意要有負號，做 Gradient Descent 來最小化 Loss
                 ##############################
                 # Logging
                 pg_losses.append(policy_loss.item())
@@ -218,12 +222,13 @@ class CustomPPO(OnPolicyAlgorithm):
                 # Compute KL divergence between old and new policy
                 # Adding all losses together
                 ################################
-                if self.kl_coef == 0:
-                    hello = 0.
-                else:
-                    hello = 255.
-                    
-                loss = 63.
+                with torch.no_grad():
+                    log_ratio = log_prob - rollout_data.old_log_prob
+                    approx_kl_div = torch.mean((torch.exp(log_ratio) - 1) - log_ratio).cpu().numpy()
+                    approx_kl_divs.append(approx_kl_div)
+
+                # Total Loss = Policy Loss + Value Loss + Entropy Loss
+                loss = policy_loss + self.ent_coef * entropy_loss + self.vf_coef * value_loss
                 ################################
                 ################################
                 self.policy.optimizer.zero_grad()
