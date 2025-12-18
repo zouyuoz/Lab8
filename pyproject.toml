@@ -1,0 +1,14 @@
+[project]
+name = "lab8"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "imageio>=2.37.2",
+    "ipykernel>=7.1.0",
+    "numpy>=2.3.5",
+    "stable-baselines3[extra]>=2.7.1",
+    "stable-retro>=0.9.6",
+    "timm>=1.0.22",
+]
