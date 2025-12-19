@@ -9,7 +9,7 @@ import warnings
 from gymnasium import spaces
 from stable_baselines3.common.buffers import RolloutBuffer
 from stable_baselines3.common.on_policy_algorithm import OnPolicyAlgorithm
-from stable_baselines3.common.policies import ActorCriticPolicy
+from stable_baselines3.common.policies import ActorCriticPolicy, ActorCriticCnnPolicy
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import FloatSchedule, explained_variance
@@ -88,7 +88,7 @@ class CustomPPO(OnPolicyAlgorithm):
         # 這後面不是很重要
         clip_range: Union[float, Schedule] = 0.2,
         normalize_advantage: bool = True,
-        ent_coef: float = 0.08,
+        ent_coef: float = 0.1,
         vf_coef: float = 0.5,
         kl_coef: float = 0.0,
         max_grad_norm: float = 0.5,

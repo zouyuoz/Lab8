@@ -3,6 +3,7 @@ import gymnasium as gym
 import torchvision.transforms as T
 from stable_baselines3.common.monitor import Monitor
 from collections import deque
+import cv2
 
 # 要改
 class PreprocessObsWrapper(gym.ObservationWrapper):
@@ -13,10 +14,10 @@ class PreprocessObsWrapper(gym.ObservationWrapper):
         obs_space = env.observation_space
         if not isinstance(obs_space, gym.spaces.Box):
             raise TypeError("PreprocessObsWrapper requires a Box observation space")
-        self.resize_shape = (224, 224)
+        self.resize_shape = (84, 84)
         c = obs_space.shape[2]
-        low = np.full((c, 224, 224), -1.0, dtype=np.float32)
-        high = np.full((c, 224, 224), 1.0, dtype=np.float32)
+        low = np.full((c, 84, 84), -1.0, dtype=np.float32)
+        high = np.full((c, 84, 84), 1.0, dtype=np.float32)
         self.observation_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
 
         transforms = []
@@ -27,7 +28,18 @@ class PreprocessObsWrapper(gym.ObservationWrapper):
         self.pipeline = T.Compose(transforms)
 
     def observation(self, observation):
-        return self.pipeline(observation)
+        # return self.pipeline(observation)
+        # 1. Resize (使用 INTER_AREA 或是 INTER_LINEAR 速度都很快)
+        # observation 原始格式是 (H, W, C)
+        resized = cv2.resize(observation, self.resize_shape, interpolation=cv2.INTER_AREA)
+
+        # 2. Normalize to [-1, 1] & Convert to float32
+        # (x / 127.5) - 1.0 是一個非常快的向量化運算
+        normalized = (resized.astype(np.float32) / 127.5) - 1.0
+
+        # 3. Transpose to (C, H, W)
+        # PyTorch 模型通常吃 (Batch, Channel, Height, Width)
+        return normalized.transpose(2, 0, 1)
 
 
 # 應該不需要改
@@ -248,7 +260,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         x_pos = info.get("x_pos", 0)
         if self._prev_x is not None:
             dx = x_pos - self._prev_x
-            reward += dx * 1.0
+            reward += dx * 0.5
         self._prev_x = x_pos
 
         # Time Penalty
@@ -267,7 +279,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         
         # Death & Win Handling
         if info.get("death", False):
-            reward -= 50.0
+            reward -= 100.0
         elif terminated and not truncated:
             reward += self.win_reward
 
