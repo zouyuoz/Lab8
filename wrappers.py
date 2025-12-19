@@ -25,20 +25,15 @@ class PreprocessObsWrapper(gym.ObservationWrapper):
         transforms.append(T.Resize(self.resize_shape, antialias=True))
         transforms.append(T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]))
         transforms.append(T.Lambda(lambda x: x.numpy()))
-        self.pipeline = T.Compose(transforms)
+        # self.pipeline = T.Compose(transforms)
 
     def observation(self, observation):
-        # return self.pipeline(observation)
-        # 1. Resize (使用 INTER_AREA 或是 INTER_LINEAR 速度都很快)
-        # observation 原始格式是 (H, W, C)
+        # 1. Resize (使用 INTER_AREA 縮小效果最好且快)
         resized = cv2.resize(observation, self.resize_shape, interpolation=cv2.INTER_AREA)
-
-        # 2. Normalize to [-1, 1] & Convert to float32
-        # (x / 127.5) - 1.0 是一個非常快的向量化運算
+        
+        # 2. Normalize & Transpose
+        # (H, W, C) -> (C, H, W) 並正規化到 [-1, 1]
         normalized = (resized.astype(np.float32) / 127.5) - 1.0
-
-        # 3. Transpose to (C, H, W)
-        # PyTorch 模型通常吃 (Batch, Channel, Height, Width)
         return normalized.transpose(2, 0, 1)
 
 
@@ -296,8 +291,30 @@ class InfoLogger(gym.Wrapper):
             print(info)
         return obs, reward, terminated, truncated, info
 
-# [wrappers.py]
-from collections import deque # 需在文件頂部新增 import
+class SkipFrameWrapper(gym.Wrapper):
+    def __init__(self, env, skip=4):
+        super().__init__(env)
+        self._skip = skip
+
+    def step(self, action):
+        total_reward = 0.0
+        terminated = False
+        truncated = False
+        obs = None
+        info = {}
+        
+        # 讓遊戲引擎連續跑 skip 次
+        for _ in range(self._skip):
+            obs, reward, term, trunc, info = self.env.step(action)
+            total_reward += reward
+            terminated = term
+            truncated = trunc
+            
+            # 如果中間死掉了或遊戲結束，就提早跳出
+            if terminated or truncated:
+                break
+                
+        return obs, total_reward, terminated, truncated, info
 
 class FrameStackWrapper(gym.Wrapper):
     """
@@ -347,9 +364,10 @@ import retro
 
 def make_base_env(game: str, state: str):
     env = retro.make(game=game, state=state, render_mode="rgb_array")
-    env = Monitor(env)
-    env = PreprocessObsWrapper(env)
-    env = FrameStackWrapper(env, n_frames=4)
+    env = SkipFrameWrapper(env, skip=4) # 先加入 skip frame
+    env = Monitor(env) # 記錄到的 step 會是 1/4
+    env = PreprocessObsWrapper(env) # 主要是 resize
+    env = FrameStackWrapper(env, n_frames=4) # 做 stack，已經是 skip-framed 畫面
     env = DiscreteActionWrapper(env, COMBOS)
     env = ExtraInfoWrapper(env)
     env = LifeTerminationWrapper(env)
