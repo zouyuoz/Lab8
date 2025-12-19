@@ -248,12 +248,18 @@ class CustomPPO(OnPolicyAlgorithm):
         self.logger.record("train/entropy_loss"  , np.mean(entropy_losses))
         self.logger.record("train/value_loss"    , np.mean(value_losses))
         self.logger.record("train/approx_kl"     , np.mean(approx_kl_divs))
-        self.logger.record("train/clip_fraction" , np.mean(clip_fractions))
         self.logger.record("train/policyGradLoss", np.mean(pg_losses))
         self.logger.record("train/explained_variance"  , explained_variance_)
+        
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", torch.exp(self.policy.log_std).mean().item())
+            
+        mean_step_reward = np.mean(self.rollout_buffer.rewards)
+        self.logger.record("train/mean_step_reward", mean_step_reward)
+        
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
+        
+        # self.logger.record("train/clip_fraction" , np.mean(clip_fractions))
         # self.logger.record("train/clip_range", self.clip_range)
 
         
