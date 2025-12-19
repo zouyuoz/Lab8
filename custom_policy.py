@@ -13,6 +13,8 @@ from stable_baselines3.common.policies import ActorCriticPolicy, ActorCriticCnnP
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedule
 from stable_baselines3.common.utils import FloatSchedule, explained_variance
+
+
 class VisionBackboneExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space: spaces.Box):
         channels, height, width = observation_space.shape
@@ -88,7 +90,7 @@ class CustomPPO(OnPolicyAlgorithm):
         # 這後面不是很重要
         clip_range: Union[float, Schedule] = 0.2,
         normalize_advantage: bool = True,
-        ent_coef: float = 0.1,
+        ent_coef: float = 0.025,
         vf_coef: float = 0.5,
         kl_coef: float = 0.0,
         max_grad_norm: float = 0.5,
@@ -242,17 +244,17 @@ class CustomPPO(OnPolicyAlgorithm):
                 break
         explained_variance_ = explained_variance(self.rollout_buffer.values.flatten(), self.rollout_buffer.returns.flatten())
         # Logs
-        self.logger.record("train/entropy_loss", np.mean(entropy_losses))
-        self.logger.record("train/policy_gradient_loss", np.mean(pg_losses))
-        self.logger.record("train/value_loss", np.mean(value_losses))
-        self.logger.record("train/approx_kl", np.mean(approx_kl_divs))
-        self.logger.record("train/clip_fraction", np.mean(clip_fractions))
         self.logger.record("train/loss", loss.item())
-        self.logger.record("train/explained_variance", explained_variance_)
+        self.logger.record("train/entropy_loss"  , np.mean(entropy_losses))
+        self.logger.record("train/value_loss"    , np.mean(value_losses))
+        self.logger.record("train/approx_kl"     , np.mean(approx_kl_divs))
+        self.logger.record("train/clip_fraction" , np.mean(clip_fractions))
+        self.logger.record("train/policyGradLoss", np.mean(pg_losses))
+        self.logger.record("train/explained_variance"  , explained_variance_)
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", torch.exp(self.policy.log_std).mean().item())
         self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        self.logger.record("train/clip_range", self.clip_range)
+        # self.logger.record("train/clip_range", self.clip_range)
 
         
     def learn(

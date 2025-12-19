@@ -16,15 +16,15 @@ class PreprocessObsWrapper(gym.ObservationWrapper):
             raise TypeError("PreprocessObsWrapper requires a Box observation space")
         self.resize_shape = (84, 84)
         c = obs_space.shape[2]
-        low = np.full((c, 84, 84), -1.0, dtype=np.float32)
-        high = np.full((c, 84, 84), 1.0, dtype=np.float32)
+        low  = np.full((c, 84, 84), -1.0, dtype=np.float32)
+        high = np.full((c, 84, 84),  1.0, dtype=np.float32)
         self.observation_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
 
-        transforms = []
-        transforms.append(T.ToTensor())  # -> float CHW in [0,1]
-        transforms.append(T.Resize(self.resize_shape, antialias=True))
-        transforms.append(T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]))
-        transforms.append(T.Lambda(lambda x: x.numpy()))
+        # transforms = []
+        # transforms.append(T.ToTensor())  # -> float CHW in [0,1]
+        # transforms.append(T.Resize(self.resize_shape, antialias=True))
+        # transforms.append(T.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]))
+        # transforms.append(T.Lambda(lambda x: x.numpy()))
         # self.pipeline = T.Compose(transforms)
 
     def observation(self, observation):
@@ -225,7 +225,7 @@ class RewardOverrideWrapper(gym.Wrapper):
     def __init__(
         self,
         env,
-        win_reward: float = 500.0,
+        win_reward: float = 5.0,
     ):
         super().__init__(env)
         self.win_reward = win_reward
@@ -255,11 +255,11 @@ class RewardOverrideWrapper(gym.Wrapper):
         x_pos = info.get("x_pos", 0)
         if self._prev_x is not None:
             dx = x_pos - self._prev_x
-            reward += dx * 0.5
+            reward += dx * 0.01
         self._prev_x = x_pos
 
         # Time Penalty
-        reward -= 0.05
+        reward -= 0.01
 
         # Reward for score increments
         score = info.get("score", 0)
@@ -274,7 +274,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         
         # Death & Win Handling
         if info.get("death", False):
-            reward -= 100.0
+            reward -= 3.0
         elif terminated and not truncated:
             reward += self.win_reward
 
@@ -282,7 +282,6 @@ class RewardOverrideWrapper(gym.Wrapper):
             self._reset_trackers(info)
 
         return obs, reward, terminated, truncated, info
-
 
 class InfoLogger(gym.Wrapper):
     def step(self, action):
@@ -298,9 +297,7 @@ class SkipFrameWrapper(gym.Wrapper):
 
     def step(self, action):
         total_reward = 0.0
-        terminated = False
-        truncated = False
-        obs = None
+        obs, terminated, truncated = None, False, False
         info = {}
         
         # 讓遊戲引擎連續跑 skip 次
@@ -326,7 +323,7 @@ class FrameStackWrapper(gym.Wrapper):
         self.frames = deque([], maxlen=n_frames)
         
         # 更新 observation_space 的維度 (C*n, H, W)
-        low = np.repeat(env.observation_space.low, n_frames, axis=0)
+        low  = np.repeat(env.observation_space.low , n_frames, axis=0)
         high = np.repeat(env.observation_space.high, n_frames, axis=0)
         self.observation_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
 
