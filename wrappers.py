@@ -11,12 +11,12 @@ class PreprocessObsWrapper(gym.ObservationWrapper):
 
     def __init__(self, env):
         super().__init__(env)
-        # obs_space = env.observation_space
-        # if not isinstance(obs_space, gym.spaces.Box):
-        #     raise TypeError("PreprocessObsWrapper requires a Box observation space")
+        obs_space = env.observation_space
+        if not isinstance(obs_space, gym.spaces.Box):
+            raise TypeError("PreprocessObsWrapper requires a Box observation space")
         self.resize_shape = (84, 84)
-        # c = obs_space.shape[2]
-        c = 1
+        c = obs_space.shape[2]
+        # c = 1
         low  = np.full((c, 84, 84), -1.0, dtype=np.float32)
         high = np.full((c, 84, 84),  1.0, dtype=np.float32)
         self.observation_space = gym.spaces.Box(low=low, high=high, dtype=np.float32)
@@ -30,10 +30,10 @@ class PreprocessObsWrapper(gym.ObservationWrapper):
 
     def observation(self, observation):
         # 1. Resize (使用 INTER_AREA 縮小效果最好且快)
-        # resized = cv2.resize(observation, self.resize_shape, interpolation=cv2.INTER_AREA)
-        gray = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
-        resized = cv2.resize(gray, self.resize_shape, interpolation=cv2.INTER_AREA)
-        resized = np.expand_dims(resized, axis=2)
+        resized = cv2.resize(observation, self.resize_shape, interpolation=cv2.INTER_AREA)
+        # gray = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
+        # resized = cv2.resize(gray, self.resize_shape, interpolation=cv2.INTER_AREA)
+        # resized = np.expand_dims(resized, axis=2)
         
         # 2. Normalize & Transpose
         # (H, W, C) -> (C, H, W) 並正規化到 [-1, 1]
