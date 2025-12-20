@@ -5,3 +5,4 @@ __pycache__/
 roms/
 
 runs_smw/
+*.zip

@@ -120,8 +120,11 @@ class ExtraInfoWrapper(gym.Wrapper):
     TIMER_TENS = 0x0F32
     TIMER_ONES = 0x0F33
     # In SMW RAM, $0094 stores the low byte and $0095 stores the high byte.
-    X_POS_LOW = 0x0094
+    X_POS_LOW  = 0x0094
     X_POS_HIGH = 0x0095
+    # Add Y_POS_LOW and Y_POS_HIGH
+    Y_POS_LOW  = 0x0096
+    Y_POS_HIGH = 0x0097
 
     def __init__(self, env):
         super().__init__(env)
@@ -147,11 +150,19 @@ class ExtraInfoWrapper(gym.Wrapper):
         low = int(ram[self.X_POS_LOW])
         high = int(ram[self.X_POS_HIGH])
         return (high << 8) | low
+    
+    def _read_y_pos(self, ram):
+        if ram is None:
+            return None
+        low = int(ram[self.Y_POS_LOW])
+        high = int(ram[self.Y_POS_HIGH])
+        return (high << 8) | low
 
     def _inject_extra(self, info):
         ram = self._get_ram()
         time_left = self._read_time_left(ram)
         x_pos = self._read_x_pos(ram)
+        y_pos = self._read_y_pos(ram)
         if time_left is None and x_pos is None:
             return info
         if not isinstance(info, dict):
@@ -164,6 +175,8 @@ class ExtraInfoWrapper(gym.Wrapper):
             if self._episode_start_x is None:
                 self._episode_start_x = x_pos
             info["x_pos"] = max(0, x_pos - self._episode_start_x)
+        if y_pos is not None:
+            info["y_pos"] = y_pos
         return info
 
     def reset(self, **kwargs):
@@ -236,6 +249,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_score = None
         self._prev_x = None
         self._prev_time = None
+        self.stuck_counter = 0 # add penalty when stuck in wall
 
     def _reset_trackers(self, info):
         self._prev_score = info.get("score", 0)
@@ -259,22 +273,34 @@ class RewardOverrideWrapper(gym.Wrapper):
         x_pos = info.get("x_pos", 0)
         if self._prev_x is not None:
             dx = x_pos - self._prev_x
-            reward += dx * 0.02
+            if dx > 0:
+                reward += dx * 0.02
+                self.stuck_counter = 0
+            else:
+                self.stuck_counter += 1
         self._prev_x = x_pos
+        
+        # Stuck Penalty
+        if self.stuck_counter > 25:
+            reward -= 4e-4 * self.stuck_counter
 
         # Time Penalty
         reward -= 0.01
+        
+        # Encourage agent to jump, give higher score when y_pos is high
+        y_pos = info.get("y_pos", 0)
+        if y_pos < 128:
+            reward += 1/(y_pos + 125)
 
         # Reward for score increments
         score = info.get("score", 0)
-        if score is not None:
-            if self._prev_score is None:
-                self._prev_score = score
-            else:
-                score_delta = score - self._prev_score
-                if score_delta > 0:
-                    reward += score_delta * 0.03
-                self._prev_score = score
+        if self._prev_score is None:
+            self._prev_score = score
+        else:
+            score_delta = score - self._prev_score
+            if score_delta > 0:
+                reward += score_delta * 0.03
+            self._prev_score = score
         
         # Death & Win Handling
         if info.get("death", False):
