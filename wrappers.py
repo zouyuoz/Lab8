@@ -229,7 +229,7 @@ class RewardOverrideWrapper(gym.Wrapper):
     def __init__(
         self,
         env,
-        win_reward: float = 5.0,
+        win_reward: float = 2.5,
     ):
         super().__init__(env)
         self.win_reward = win_reward
@@ -259,7 +259,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         x_pos = info.get("x_pos", 0)
         if self._prev_x is not None:
             dx = x_pos - self._prev_x
-            reward += dx * 0.01
+            reward += dx * 0.02
         self._prev_x = x_pos
 
         # Time Penalty
@@ -273,12 +273,12 @@ class RewardOverrideWrapper(gym.Wrapper):
             else:
                 score_delta = score - self._prev_score
                 if score_delta > 0:
-                    reward += score_delta * 0.025
+                    reward += score_delta * 0.03
                 self._prev_score = score
         
         # Death & Win Handling
         if info.get("death", False):
-            reward -= 3.0
+            reward -= 1.0
         elif terminated and not truncated:
             reward += self.win_reward
 
