@@ -107,6 +107,9 @@ class LifeTerminationWrapper(gym.Wrapper):
             if isinstance(info, dict):
                 info = dict(info)
                 info["death"] = True
+        
+        if info.get("is_cleared", False):
+            terminated = True
 
         return obs, reward, terminated, truncated, info
 
@@ -125,6 +128,8 @@ class ExtraInfoWrapper(gym.Wrapper):
     # Add Y_POS_LOW and Y_POS_HIGH
     Y_POS_LOW  = 0x0096
     Y_POS_HIGH = 0x0097
+    
+    GAME_MODE = 0x0100
 
     def __init__(self, env):
         super().__init__(env)
@@ -157,16 +162,23 @@ class ExtraInfoWrapper(gym.Wrapper):
         low = int(ram[self.Y_POS_LOW])
         high = int(ram[self.Y_POS_HIGH])
         return (high << 8) | low
+    
+    def _read_game_mode(self, ram):
+        if ram is None: return None
+        return int(ram[self.GAME_MODE])
 
     def _inject_extra(self, info):
         ram = self._get_ram()
         time_left = self._read_time_left(ram)
         x_pos = self._read_x_pos(ram)
         y_pos = self._read_y_pos(ram)
+        game_mode = self._read_game_mode(ram)
+        
         if time_left is None and x_pos is None:
             return info
         if not isinstance(info, dict):
             info = {}
+        
         # copy to avoid mutating shared dict instances
         info = dict(info)
         if time_left is not None:
@@ -177,6 +189,10 @@ class ExtraInfoWrapper(gym.Wrapper):
             info["x_pos"] = max(0, x_pos - self._episode_start_x)
         if y_pos is not None:
             info["y_pos"] = y_pos
+        if game_mode is not None:
+            info["game_mode"] = game_mode
+            info["is_cleared"] = (game_mode == 14)
+        
         return info
 
     def reset(self, **kwargs):
@@ -263,9 +279,13 @@ class RewardOverrideWrapper(gym.Wrapper):
         return obs, info
 
     def step(self, action):
-        obs, _, terminated, truncated, info = self.env.step(action)
+        obs, reward, terminated, truncated, info = self.env.step(action)
         if not isinstance(info, dict):
             info = {}
+            
+        # if win, imidiately return
+        if info.get("is_cleard", False):
+            return obs, self.win_reward, True, truncated, info
 
         reward = 0.0
 
@@ -373,15 +393,15 @@ class FrameStackWrapper(gym.Wrapper):
         return np.concatenate(list(self.frames), axis=0)
 
 COMBOS = [
-    [],                  # 0: NOOP
-    ["RIGHT"],           # 1: 走右
-    ["LEFT"],            # 2: 走左（可選）
-    ["DOWN"],            # 3: 下蹲
-    ["A"],               # 4: 跳
-    ["B"],               # 5: 跑
-    ["RIGHT", "A"],      # 6: 右 + 跳
-    ["RIGHT", "B"],      # 7: 右 + 跑
-    ["RIGHT", "A", "B"], # 8: 右 + 跳 + 跑
+    [],                  # 00: NOOP
+    ["RIGHT"],           # 01: 走右
+    ["LEFT"],            # 02: 走左（可選）
+    ["DOWN"],            # 03: 下蹲
+    ["A"],               # 04: 跳
+    ["B"],               # 05: 跑
+    ["RIGHT", "A"],      # 06: 右 + 跳
+    ["RIGHT", "B"],      # 07: 右 + 跑
+    ["RIGHT", "A", "B"], # 08: 右 + 跳 + 跑
     ["LEFT", "A"],       # 10: 左 + 跳
     ["LEFT", "B"],       # 11: 左 + 跑
     ["LEFT", "A", "B"],  # 12: 左 + 跳 + 跑
