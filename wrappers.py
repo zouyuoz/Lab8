@@ -266,10 +266,12 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_x = None
         self._prev_time = None
         self.stuck_counter = 0 # add penalty when stuck in wall
+        self._prev_coin = None
 
     def _reset_trackers(self, info):
         self._prev_score = info.get("score", 0)
         self._prev_x = info.get("x_pos", 0)
+        self._prev_y = info.get("y_pos", 315)
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -291,26 +293,31 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         # Distance reward
         x_pos = info.get("x_pos", 0)
-        if self._prev_x is not None:
-            dx = x_pos - self._prev_x
-            if dx > 0:
-                reward += dx * 0.02
-                self.stuck_counter = 0
-            else:
-                self.stuck_counter += 1
+        dx = x_pos - self._prev_x
+        if dx > 0:
+            reward += dx * 0.02
+            self.stuck_counter = 0
+        else:
+            self.stuck_counter += 1
         self._prev_x = x_pos
         
         # Stuck Penalty
         if self.stuck_counter > 25:
-            reward -= 4e-4 * self.stuck_counter
+            reward -= 0.0004 * self.stuck_counter
 
         # Time Penalty
         reward -= 0.01
         
-        # Encourage agent to jump, give higher score when y_pos is high
+        # Encourage agent to jump
+        # Gain higher score when y_pos is low (high in obs)
         y_pos = info.get("y_pos", 0)
-        if y_pos < 128:
-            reward += 1/(y_pos + 125)
+        dy = y_pos - self._prev_y
+        if dy < 0: reward += 1 / max(y_pos, 125)
+        self._prev_y = y_pos
+        
+        # Secret tunnel
+        if (1850 < x_pos < 1950) and (action in [3, 4, 6, 8, 10, 12]):
+            reward += 0.075
 
         # Reward for score increments
         score = info.get("score", 0)
@@ -321,6 +328,15 @@ class RewardOverrideWrapper(gym.Wrapper):
             if score_delta > 0:
                 reward += score_delta * 0.03
             self._prev_score = score
+            
+        coin = info.get("coins", 0)
+        if self._prev_coin is None:
+            self._prev_coin = coin
+            reward += 0.075
+        else:
+            coin_delta = coin - self._prev_coin
+            reward += coin_delta * 0.075
+            self._prev_coin = coin
         
         # Death & Win Handling
         if info.get("death", False):

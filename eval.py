@@ -33,15 +33,21 @@ def _format_info(info: dict, max_len: int = 120) -> str:
     if not isinstance(info, dict) or not info:
         return "{}"
     parts = []
+    line_len = 0
     total_len = 0
     for key, value in info.items():
         fragment = f"{key}={value}"
         if total_len + len(fragment) > max_len:
             parts.append("...")
             break
-        parts.append(fragment)
+        if line_len + len(fragment) > 40:
+            parts.append("\n" + fragment)
+            line_len = len(fragment)
+        else:
+            parts.append(fragment)
+            line_len += len(fragment)
         total_len += len(fragment) + 2
-    return "{" + ", ".join(parts) + "}"
+    return " | ".join(parts)
 
 
 def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: float, info: dict, font: ImageFont.ImageFont) -> np.ndarray:
@@ -49,9 +55,8 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
     draw = ImageDraw.Draw(img)
     info_str = _format_info(info)
     lines = [
-        f"reward={last_reward:.3f}",
-        f"cum_reward={cumulative_reward:.3f}",
-        f"info: {info_str}",
+        f"reward={last_reward:.3f} | cumu_reward={cumulative_reward:.3f}",
+        f"{info_str}",
     ]
     padding = 4
     bbox_sample = draw.textbbox((0, 0), "Ag", font=font)
@@ -60,12 +65,13 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
     for line in lines:
         bbox = draw.textbbox((0, 0), line, font=font)
         line_widths.append(bbox[2] - bbox[0])
-    box_width = max(line_widths) + padding * 2
-    box_height = line_height * len(lines) + padding * (len(lines) + 1)
-    draw.rectangle([0, 0, box_width, box_height], fill=(0, 0, 0, 200))
+    # box_width = max(line_widths) + padding * 2
+    # # box_height = line_height * len(lines) + padding * (len(lines) + 1)
+    # box_height = line_height * 4 + padding * (4 + 1)
+    # draw.rectangle([0, 0, box_width, box_height], fill=(0, 0, 0, 200))
     y = padding
     for line in lines:
-        draw.text((padding, y), line, fill=(255, 255, 255), font=font)
+        draw.text((padding, y), line, fill=(255, 159, 71), font=font)
         y += line_height + padding
     return np.array(img)
 
