@@ -5,7 +5,7 @@ import numpy as np
 from custom_policy import CustomPPO
 from PIL import Image, ImageDraw, ImageFont
 import imageio.v2 as imageio
-from wrappers import make_base_env
+from wrappers import make_base_env, COMBOS
 def evaluate_policy(model: CustomPPO, game: str, state: str, n_episodes: int, max_steps: int):
     env = make_base_env(game, state)
     returns = []
@@ -29,34 +29,42 @@ def evaluate_policy(model: CustomPPO, game: str, state: str, n_episodes: int, ma
     best_ret = float(np.max(returns)) if returns else 0.0
     return mean_ret, best_ret
 
-def _format_info(info: dict, max_len: int = 120) -> str:
+def _format_info(info: dict, max_len: int = 48) -> str:
     if not isinstance(info, dict) or not info:
         return "{}"
-    parts = []
-    line_len = 0
-    total_len = 0
+    lines = []
+    current_line = []
+    current_line_len = 0
     for key, value in info.items():
+        if key == "x_pos": key = "X"
+        if key == "y_pos": key = "Y"
+        if key == "time_left": key = "CLK"
+        if key == "game_mode": key = "GM"
+        if key == "is_cleared": continue
+        if key == "lives": continue
+        
         fragment = f"{key}={value}"
-        if total_len + len(fragment) > max_len:
-            parts.append("...")
-            break
-        if line_len + len(fragment) > 40:
-            parts.append("\n" + fragment)
-            line_len = len(fragment)
+        separator_len = 3 if current_line else 0
+        if current_line_len + separator_len + len(fragment) > max_len:
+            lines.append(" | ".join(current_line) + " |" + " "*(max_len - current_line_len))
+            current_line = [fragment]
+            current_line_len = len(fragment)
         else:
-            parts.append(fragment)
-            line_len += len(fragment)
-        total_len += len(fragment) + 2
-    return " | ".join(parts)
+            current_line.append(fragment)
+            current_line_len += separator_len + len(fragment)
+    if current_line:
+        lines.append(" | ".join(current_line) + " |")
+    return "\n".join(lines)
 
 
-def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: float, info: dict, font: ImageFont.ImageFont) -> np.ndarray:
+def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: float, action: int, info: dict, font: ImageFont.ImageFont) -> np.ndarray:
     img = Image.fromarray(frame)
     draw = ImageDraw.Draw(img)
+    action_label = COMBOS[action] if action < len(COMBOS) else "UNKNOWN"
     info_str = _format_info(info)
     lines = [
-        f"reward={last_reward:.3f} | cumu_reward={cumulative_reward:.3f}",
-        f"{info_str} + {}",
+        f"RWD={last_reward:.3f} | C_RWD={cumulative_reward:.3f} | ACT={action},{action_label}",
+        f"{info_str}",
     ]
     padding = 4
     bbox_sample = draw.textbbox((0, 0), "Ag", font=font)
@@ -66,12 +74,13 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
         bbox = draw.textbbox((0, 0), line, font=font)
         line_widths.append(bbox[2] - bbox[0])
     # box_width = max(line_widths) + padding * 2
-    # # box_height = line_height * len(lines) + padding * (len(lines) + 1)
+    box_width = 250
+    box_height = line_height * len(lines) + padding * (len(lines) + 1)
     # box_height = line_height * 4 + padding * (4 + 1)
-    # draw.rectangle([0, 0, box_width, box_height], fill=(0, 0, 0, 200))
+    draw.rectangle([0, 0, box_width, box_height], fill=(0, 0, 0, 128))
     y = padding
     for line in lines:
-        draw.text((padding, y), line, fill=(255, 123, 0), font=font)
+        draw.text((padding, y), line, fill=(255, 196, 0), font=font)
         y += line_height + padding
     return np.array(img)
 
@@ -89,12 +98,13 @@ def record_video(model: CustomPPO, game: str, state: str, out_dir: str, video_le
     cumulative_reward = 0.0
     for _ in range(video_len):
         action, _ = model.predict(obs, deterministic=True)
+        act_val = int(action) if hasattr(action, "__init__") else action
         obs, reward, terminated, truncated, info = env.step(action)
         frame = env.render()
-        if frame is None:
-            continue
+        if frame is None: continue
         cumulative_reward += float(reward)
-        annotated = _annotate_frame(frame, cumulative_reward, float(reward), info, font)
+        
+        annotated = _annotate_frame(frame, cumulative_reward, float(reward), act_val, info, font)
         writer.append_data(annotated)
         if terminated or truncated:
             obs, info = env.reset()

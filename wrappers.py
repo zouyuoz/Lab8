@@ -320,10 +320,10 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_y = y_pos
         
         # Stuck Penalty
-        action_right = [1, 7]
+        action_bad = [6]
         if dx == 0 and dy == 0: self.stuck_counter += 1
         if self.stuck_counter > 25:
-            if action not in action_right:
+            if action not in action_bad:
                 reward += 0.02
 
         # Time Penalty
@@ -331,8 +331,11 @@ class RewardOverrideWrapper(gym.Wrapper):
         
         # Secret tunnel
         A_s = [4, 6, 8, 9, 11]
+        hop_and_squat= [3, 4]
         if (1800 < x_pos < 1930) and (action in A_s):
             reward += 0.075
+        if (1900 < x_pos < 1930) and (action in hop_and_squat):
+            reward += 0.5
         in_pipe = info.get("pipe", False)
         if in_pipe != self._in_pipe:
             reward += 0.5
@@ -432,14 +435,15 @@ COMBOS = [
     ["RIGHT"],           # 01: 走右
     ["LEFT"],            # 02: 走左（可選）
     ["DOWN"],            # 03: 下蹲
-    ["A"],               # 04: 跳
-    ["B"],               # 05: 跑
-    ["RIGHT", "A"],      # 06: 右 + 跳
-    ["RIGHT", "B"],      # 07: 右 + 跑
-    ["RIGHT", "A", "B"], # 08: 右 + 跳 + 跑
-    ["LEFT", "A"],       # 09: 左 + 跳
-    ["LEFT", "B"],       # 10: 左 + 跑
-    ["LEFT", "A", "B"],  # 11: 左 + 跳 + 跑
+    ["A"],               # 04: 旋跳 (Spin Jump)
+    ["B"],               # 05: 跳 (Jump)
+    ["RIGHT", "A"],      # 06: 右 + 旋跳
+    ["RIGHT", "B"],      # 07: 右 + 跳
+    ["RIGHT", "Y"],      # 08: 右 + 跑
+    ["LEFT", "A"],       # 09: 左 + 旋跳
+    ["LEFT", "B"],       # 10: 左 + 跳
+    ["LEFT", "Y"],       # 11: 左 + 跑
+    # ["Y"],               # 12: 加速 (在這關不會單獨使用)
 ]
 
 import retro
