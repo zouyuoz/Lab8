@@ -273,6 +273,8 @@ class RewardOverrideWrapper(gym.Wrapper):
         self.win_reward = win_reward
         self._prev_score = None
         self._prev_x = None
+        self._prev_y = None
+        self._max_x = 0
         self._prev_time = None
         self.stuck_counter = 0 # add penalty when stuck in wall
         self._prev_coin = None
@@ -295,7 +297,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         obs, reward, terminated, truncated, info = self.env.step(action)
         if not isinstance(info, dict):
             info = {}
-            
+        
         # if win, imidiately return
         if info.get("is_cleard", False):
             return obs, self.win_reward, True, truncated, info
@@ -305,9 +307,12 @@ class RewardOverrideWrapper(gym.Wrapper):
         # Distance reward
         x_pos = info.get("x_pos", 0)
         dx = x_pos - self._prev_x
-        if dx > 0:
+        
+        if dx != 0: self.stuck_counter = 0
+        if x_pos > self._max_x and dx > 0:
             reward += dx * 0.02
-            self.stuck_counter = 0
+            self._max_x = x_pos
+        
         self._prev_x = x_pos
         
         # Encourage agent to jump
@@ -330,15 +335,15 @@ class RewardOverrideWrapper(gym.Wrapper):
         reward -= 0.01
         
         # Secret tunnel
-        A_s = [4, 6, 8, 9, 11]
-        hop_and_squat= [3, 4]
-        if (1800 < x_pos < 1930) and (action in A_s):
-            reward += 0.075
+        # A_s = [8, 9, 11]
+        hop_and_squat= [3, 4] # DOWN, A
+        # if (1880 < x_pos < 1930) and (action in A_s):
+        #     reward += 1.33
         if (1900 < x_pos < 1930) and (action in hop_and_squat):
-            reward += 0.5
+            reward += 5
         in_pipe = info.get("pipe", False)
         if in_pipe != self._in_pipe:
-            reward += 0.5
+            reward += 10
         self._in_pipe = in_pipe
 
         # Reward for score increments
