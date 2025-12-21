@@ -56,7 +56,7 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
     info_str = _format_info(info)
     lines = [
         f"reward={last_reward:.3f} | cumu_reward={cumulative_reward:.3f}",
-        f"{info_str}",
+        f"{info_str} + {}",
     ]
     padding = 4
     bbox_sample = draw.textbbox((0, 0), "Ag", font=font)
@@ -71,7 +71,7 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
     # draw.rectangle([0, 0, box_width, box_height], fill=(0, 0, 0, 200))
     y = padding
     for line in lines:
-        draw.text((padding, y), line, fill=(255, 159, 71), font=font)
+        draw.text((padding, y), line, fill=(255, 123, 0), font=font)
         y += line_height + padding
     return np.array(img)
 

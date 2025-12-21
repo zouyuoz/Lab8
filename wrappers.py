@@ -130,6 +130,7 @@ class ExtraInfoWrapper(gym.Wrapper):
     Y_POS_HIGH = 0x0097
     
     GAME_MODE = 0x0100
+    ANIMATION = 0x0071
 
     def __init__(self, env):
         super().__init__(env)
@@ -166,13 +167,18 @@ class ExtraInfoWrapper(gym.Wrapper):
     def _read_game_mode(self, ram):
         if ram is None: return None
         return int(ram[self.GAME_MODE])
+    
+    def _read_animation(self, ram):
+        if ram is None: return None
+        return int(ram[self.ANIMATION])
 
     def _inject_extra(self, info):
-        ram = self._get_ram()
+        ram       = self._get_ram()
         time_left = self._read_time_left(ram)
-        x_pos = self._read_x_pos(ram)
-        y_pos = self._read_y_pos(ram)
+        x_pos     = self._read_x_pos(ram)
+        y_pos     = self._read_y_pos(ram)
         game_mode = self._read_game_mode(ram)
+        anime     = self._read_animation(ram)
         
         if time_left is None and x_pos is None:
             return info
@@ -192,6 +198,9 @@ class ExtraInfoWrapper(gym.Wrapper):
         if game_mode is not None:
             info["game_mode"] = game_mode
             info["is_cleared"] = (game_mode == 14)
+        if anime is not None:
+            info["anime"] = anime
+            info["pipe"] = (anime == 5 or anime == 6)
         
         return info
 
@@ -267,6 +276,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_time = None
         self.stuck_counter = 0 # add penalty when stuck in wall
         self._prev_coin = None
+        self._in_pipe = False
 
     def _reset_trackers(self, info):
         self._prev_score = info.get("score", 0)
@@ -278,6 +288,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         if not isinstance(info, dict):
             info = {}
         self._reset_trackers(info)
+        self._in_pipe = False
         return obs, info
 
     def step(self, action):
@@ -297,27 +308,35 @@ class RewardOverrideWrapper(gym.Wrapper):
         if dx > 0:
             reward += dx * 0.02
             self.stuck_counter = 0
-        else:
-            self.stuck_counter += 1
         self._prev_x = x_pos
-        
-        # Stuck Penalty
-        if self.stuck_counter > 25:
-            reward -= 0.0004 * self.stuck_counter
-
-        # Time Penalty
-        reward -= 0.01
         
         # Encourage agent to jump
         # Gain higher score when y_pos is low (high in obs)
         y_pos = info.get("y_pos", 0)
         dy = y_pos - self._prev_y
-        if dy < 0: reward += 1 / max(y_pos, 125)
+        if dy < 0:
+            reward += 1 / max(y_pos, 125)
+            self.stuck_counter = 0
         self._prev_y = y_pos
         
+        # Stuck Penalty
+        action_right = [1, 7]
+        if dx == 0 and dy == 0: self.stuck_counter += 1
+        if self.stuck_counter > 25:
+            if action not in action_right:
+                reward += 0.02
+
+        # Time Penalty
+        reward -= 0.01
+        
         # Secret tunnel
-        if (1850 < x_pos < 1950) and (action in [3, 4, 6, 8, 10, 12]):
+        A_s = [4, 6, 8, 9, 11]
+        if (1800 < x_pos < 1930) and (action in A_s):
             reward += 0.075
+        in_pipe = info.get("pipe", False)
+        if in_pipe != self._in_pipe:
+            reward += 0.5
+        self._in_pipe = in_pipe
 
         # Reward for score increments
         score = info.get("score", 0)
@@ -332,7 +351,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         coin = info.get("coins", 0)
         if self._prev_coin is None:
             self._prev_coin = coin
-            reward += 0.075
+            reward += coin * 0.075
         else:
             coin_delta = coin - self._prev_coin
             reward += coin_delta * 0.075
@@ -418,9 +437,9 @@ COMBOS = [
     ["RIGHT", "A"],      # 06: 右 + 跳
     ["RIGHT", "B"],      # 07: 右 + 跑
     ["RIGHT", "A", "B"], # 08: 右 + 跳 + 跑
-    ["LEFT", "A"],       # 10: 左 + 跳
-    ["LEFT", "B"],       # 11: 左 + 跑
-    ["LEFT", "A", "B"],  # 12: 左 + 跳 + 跑
+    ["LEFT", "A"],       # 09: 左 + 跳
+    ["LEFT", "B"],       # 10: 左 + 跑
+    ["LEFT", "A", "B"],  # 11: 左 + 跳 + 跑
 ]
 
 import retro
