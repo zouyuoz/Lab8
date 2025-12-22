@@ -34,7 +34,7 @@ class PreprocessObsWrapper(gym.ObservationWrapper):
         gray = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
         resized = cv2.resize(gray, self.resize_shape, interpolation=cv2.INTER_AREA)
         resized = np.expand_dims(resized, axis=2)
-        
+
         # 2. Normalize & Transpose
         # (H, W, C) -> (C, H, W) 並正規化到 [-1, 1]
         normalized = (resized.astype(np.float32) / 127.5) - 1.0
@@ -72,7 +72,7 @@ class DiscreteActionWrapper(gym.ActionWrapper):
 
     def action(self, act):
         return self._mapped[int(act)].copy()
-    
+
 # 死掉的話要重製
 class LifeTerminationWrapper(gym.Wrapper):
     def __init__(self, env):
@@ -107,7 +107,7 @@ class LifeTerminationWrapper(gym.Wrapper):
             if isinstance(info, dict):
                 info = dict(info)
                 info["death"] = True
-        
+
         if info.get("is_cleared", False):
             terminated = True
 
@@ -128,7 +128,7 @@ class ExtraInfoWrapper(gym.Wrapper):
     # Add Y_POS_LOW and Y_POS_HIGH
     Y_POS_LOW  = 0x0096
     Y_POS_HIGH = 0x0097
-    
+
     GAME_MODE = 0x0100
     ANIMATION = 0x0071
 
@@ -156,18 +156,18 @@ class ExtraInfoWrapper(gym.Wrapper):
         low = int(ram[self.X_POS_LOW])
         high = int(ram[self.X_POS_HIGH])
         return (high << 8) | low
-    
+
     def _read_y_pos(self, ram):
         if ram is None:
             return None
         low = int(ram[self.Y_POS_LOW])
         high = int(ram[self.Y_POS_HIGH])
         return (high << 8) | low
-    
+
     def _read_game_mode(self, ram):
         if ram is None: return None
         return int(ram[self.GAME_MODE])
-    
+
     def _read_animation(self, ram):
         if ram is None: return None
         return int(ram[self.ANIMATION])
@@ -179,12 +179,12 @@ class ExtraInfoWrapper(gym.Wrapper):
         y_pos     = self._read_y_pos(ram)
         game_mode = self._read_game_mode(ram)
         anime     = self._read_animation(ram)
-        
+
         if time_left is None and x_pos is None:
             return info
         if not isinstance(info, dict):
             info = {}
-        
+
         # copy to avoid mutating shared dict instances
         info = dict(info)
         if time_left is not None:
@@ -201,7 +201,7 @@ class ExtraInfoWrapper(gym.Wrapper):
         if anime is not None:
             info["anime"] = anime
             info["pipe"] = (anime == 5 or anime == 6)
-        
+
         return info
 
     def reset(self, **kwargs):
@@ -297,25 +297,24 @@ class RewardOverrideWrapper(gym.Wrapper):
         obs, reward, terminated, truncated, info = self.env.step(action)
         if not isinstance(info, dict):
             info = {}
-        
+
         # if win, imidiately return
         if info.get("is_cleard", False):
             return obs, self.win_reward, True, truncated, info
 
         reward = 0.0
-
         # Distance reward
         x_pos = info.get("x_pos", 0)
         dx = x_pos - self._prev_x
-        
+
         if dx != 0: self.stuck_counter = 0
         if dx > 0:
             reward += dx * 0.02
         if x_pos > self.max_x:
             self.max_x = x_pos
-        
+
         self._prev_x = x_pos
-        
+
         # Encourage agent to jump
         # Gain higher score when y_pos is low (high in obs)
         y_pos = info.get("y_pos", 0)
@@ -324,7 +323,7 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward += 1 / max(y_pos, 125)
             self.stuck_counter = 0
         self._prev_y = y_pos
-        
+
         # Stuck Penalty
         action_bad = [0, 6]
         if dx == 0 and dy == 0: self.stuck_counter += 1
@@ -333,7 +332,7 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         # Time Penalty
         reward -= 0.01
-        
+
         # Secret tunnel
         # A_s = [8, 9, 11]
         # spin_jumps= [4, 6, 8] # "A"s, "8 is now leftA"
@@ -343,7 +342,7 @@ class RewardOverrideWrapper(gym.Wrapper):
                 reward += 0.025
             elif y_pos > 300 and action == 3: # squat
                 reward += 0.05
-        
+
         is_in_pipe = info.get("pipe", False)
         if is_in_pipe and not self.in_pipe:
             reward += 10
@@ -356,9 +355,9 @@ class RewardOverrideWrapper(gym.Wrapper):
         else:
             score_delta = score - self._prev_score
             if score_delta > 0:
-                reward += score_delta * 0.03
+                reward += score_delta * 0.15
             self._prev_score = score
-            
+
         coin = info.get("coins", 0)
         if self._prev_coin is None:
             self._prev_coin = coin
@@ -367,6 +366,33 @@ class RewardOverrideWrapper(gym.Wrapper):
             coin_delta = coin - self._prev_coin
             reward += coin_delta * 0.075
             self._prev_coin = coin
+        '''
+        MAX_X_POS = 5000
+        x_pos = info.get("x_pos", 0)
+        y_pos = info.get("y_pos", 0)
+        dx = x_pos - self._prev_x
+        dy = y_pos - self._prev_y
+        not_moving = dx == 0 and dy == 0
+        
+        regular_reward = 0.01 * (1 + np.sqrt(x_pos/MAX_X_POS))
+        
+        if not not_moving:
+            reward += regular_reward
+        else:
+            reward -= regular_reward * 0.5
+            
+        self._prev_x = x_pos
+        self._prev_y = y_pos
+        
+        score = info.get("score", 0)
+        if self._prev_score is None:
+            self._prev_score = score
+        else:
+            score_delta = score - self._prev_score
+            if score_delta > 0:
+                reward += score_delta * 0.05
+            self._prev_score = score
+        '''
         
         # Death & Win Handling
         if info.get("death", False):
@@ -395,18 +421,18 @@ class SkipFrameWrapper(gym.Wrapper):
         total_reward = 0.0
         obs, terminated, truncated = None, False, False
         info = {}
-        
+
         # 讓遊戲引擎連續跑 skip 次
         for _ in range(self._skip):
             obs, reward, term, trunc, info = self.env.step(action)
             total_reward += reward
             terminated = term
             truncated = trunc
-            
+
             # 如果中間死掉了或遊戲結束，就提早跳出
             if terminated or truncated:
                 break
-                
+
         return obs, total_reward, terminated, truncated, info
 
 class FrameStackWrapper(gym.Wrapper):
@@ -417,7 +443,7 @@ class FrameStackWrapper(gym.Wrapper):
         super().__init__(env)
         self.n_frames = n_frames
         self.frames = deque([], maxlen=n_frames)
-        
+
         # 更新 observation_space 的維度 (C*n, H, W)
         low  = np.repeat(env.observation_space.low , n_frames, axis=0)
         high = np.repeat(env.observation_space.high, n_frames, axis=0)
