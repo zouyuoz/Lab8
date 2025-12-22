@@ -273,12 +273,10 @@ class RewardOverrideWrapper(gym.Wrapper):
         self.win_reward = win_reward
         self._prev_score = None
         self._prev_x = None
-        self._prev_y = None
-        # self._prev_time = None
-        self._prev_coin = None
-        self.max_x = 0
+        self._prev_time = None
         self.stuck_counter = 0 # add penalty when stuck in wall
-        self.in_pipe = False
+        self._prev_coin = None
+        self._in_pipe = False
 
     def _reset_trackers(self, info):
         self._prev_score = info.get("score", 0)
@@ -290,14 +288,14 @@ class RewardOverrideWrapper(gym.Wrapper):
         if not isinstance(info, dict):
             info = {}
         self._reset_trackers(info)
-        self.in_pipe = False
+        self._in_pipe = False
         return obs, info
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
         if not isinstance(info, dict):
             info = {}
-        
+            
         # if win, imidiately return
         if info.get("is_cleard", False):
             return obs, self.win_reward, True, truncated, info
@@ -307,13 +305,9 @@ class RewardOverrideWrapper(gym.Wrapper):
         # Distance reward
         x_pos = info.get("x_pos", 0)
         dx = x_pos - self._prev_x
-        
-        if dx != 0: self.stuck_counter = 0
         if dx > 0:
             reward += dx * 0.02
-        if x_pos > self.max_x:
-            self.max_x = x_pos
-        
+            self.stuck_counter = 0
         self._prev_x = x_pos
         
         # Encourage agent to jump
@@ -326,28 +320,23 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_y = y_pos
         
         # Stuck Penalty
-        action_bad = [0, 6]
+        action_right = [1, 7]
         if dx == 0 and dy == 0: self.stuck_counter += 1
-        if self.stuck_counter > 25 and action in action_bad:
-            reward -= 0.02
+        if self.stuck_counter > 25:
+            if action not in action_right:
+                reward += 0.02
 
         # Time Penalty
         reward -= 0.01
         
         # Secret tunnel
-        # A_s = [8, 9, 11]
-        # spin_jumps= [4, 6, 8] # "A"s, "8 is now leftA"
-        if (1900 < x_pos < 1930) and dx == 0:
-            reward += 0.025
-            if y_pos < 290 and action == 4: # spin jump
-                reward += 0.025
-            elif y_pos > 300 and action == 3: # squat
-                reward += 0.05
-        
-        is_in_pipe = info.get("pipe", False)
-        if is_in_pipe and not self.in_pipe:
-            reward += 10
-        self.in_pipe = is_in_pipe
+        A_s = [4, 6, 8, 9, 11]
+        if (1800 < x_pos < 1930) and (action in A_s):
+            reward += 0.075
+        in_pipe = info.get("pipe", False)
+        if in_pipe != self._in_pipe:
+            reward += 0.5
+        self._in_pipe = in_pipe
 
         # Reward for score increments
         score = info.get("score", 0)
@@ -443,15 +432,14 @@ COMBOS = [
     ["RIGHT"],           # 01: 走右
     ["LEFT"],            # 02: 走左（可選）
     ["DOWN"],            # 03: 下蹲
-    ["A"],               # 04: 旋跳 (Spin Jump)
-    ["B"],               # 05: 跳 (Jump)
-    ["RIGHT", "A"],      # 06: 右 + 旋跳
-    ["RIGHT", "B"],      # 07: 右 + 跳
-    # ["RIGHT", "Y"],      # 08: 右 + 跑
-    ["LEFT", "A"],       # 09: 左 + 旋跳
-    ["LEFT", "B"],       # 10: 左 + 跳
-    # ["LEFT", "Y"],       # 11: 左 + 跑
-    # ["Y"],               # 12: 加速 (在這關不會單獨使用)
+    ["A"],               # 04: 跳
+    ["B"],               # 05: 跑
+    ["RIGHT", "A"],      # 06: 右 + 跳
+    ["RIGHT", "B"],      # 07: 右 + 跑
+    ["RIGHT", "A", "B"], # 08: 右 + 跳 + 跑
+    ["LEFT", "A"],       # 09: 左 + 跳
+    ["LEFT", "B"],       # 10: 左 + 跑
+    ["LEFT", "A", "B"],  # 11: 左 + 跳 + 跑
 ]
 
 import retro
