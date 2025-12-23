@@ -312,7 +312,6 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward += dx * 0.02
         if x_pos > self.max_x:
             self.max_x = x_pos
-
         self._prev_x = x_pos
 
         # Encourage agent to jump
@@ -335,13 +334,13 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         # Secret tunnel
         # A_s = [8, 9, 11]
-        # spin_jumps= [4, 6, 8] # "A"s, "8 is now leftA"
-        if (1900 < x_pos < 1930) and dx == 0:
-            reward += 0.025
-            if y_pos < 290 and action == 4: # spin jump
-                reward += 0.025
+        spin_jumps= [4, 6, 8] # "A"s, "8 is now leftA"
+        if (1900 < x_pos < 1930):
+            if dx == 0: reward += 0.025
+            if (280 < y_pos < 295) and action in spin_jumps:
+                reward += 1
             elif y_pos > 300 and action == 3: # squat
-                reward += 0.05
+                reward += 10
 
         is_in_pipe = info.get("pipe", False)
         if is_in_pipe and not self.in_pipe:
@@ -353,50 +352,26 @@ class RewardOverrideWrapper(gym.Wrapper):
         if self._prev_score is None:
             self._prev_score = score
         else:
-            score_delta = score - self._prev_score
-            if score_delta > 0:
-                reward += score_delta * 0.15
-            self._prev_score = score
+            dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
+            if dScore > 0:
+                if dScore == 5 and x_pos < 2000: # distroy secret tunnel surface
+                    reward += 10
+                else:
+                    reward += 0.1 * dScore
+                self._prev_score = score
 
         coin = info.get("coins", 0)
         if self._prev_coin is None:
             self._prev_coin = coin
-            reward += coin * 0.075
         else:
-            coin_delta = coin - self._prev_coin
-            reward += coin_delta * 0.075
+            dCoin = coin - self._prev_coin
+            reward += dCoin # usually increase by 1
             self._prev_coin = coin
-        '''
-        MAX_X_POS = 5000
-        x_pos = info.get("x_pos", 0)
-        y_pos = info.get("y_pos", 0)
-        dx = x_pos - self._prev_x
-        dy = y_pos - self._prev_y
-        not_moving = dx == 0 and dy == 0
-        
-        regular_reward = 0.01 * (1 + np.sqrt(x_pos/MAX_X_POS))
-        
-        if not not_moving:
-            reward += regular_reward
-        else:
-            reward -= regular_reward * 0.5
-            
-        self._prev_x = x_pos
-        self._prev_y = y_pos
-        
-        score = info.get("score", 0)
-        if self._prev_score is None:
-            self._prev_score = score
-        else:
-            score_delta = score - self._prev_score
-            if score_delta > 0:
-                reward += score_delta * 0.05
-            self._prev_score = score
-        '''
-        
+
         # Death & Win Handling
         if info.get("death", False):
-            reward -= 1.0
+            # reward -= 1.0
+            reward = reward - 1.0 if reward < 10 else reward * 0.9
         elif terminated and not truncated:
             reward += self.win_reward
 
@@ -465,19 +440,19 @@ class FrameStackWrapper(gym.Wrapper):
         return np.concatenate(list(self.frames), axis=0)
 
 COMBOS = [
-    [],                  # 00: NOOP
-    ["RIGHT"],           # 01: 走右
-    ["LEFT"],            # 02: 走左（可選）
-    ["DOWN"],            # 03: 下蹲
-    ["A"],               # 04: 旋跳 (Spin Jump)
-    ["B"],               # 05: 跳 (Jump)
-    ["RIGHT", "A"],      # 06: 右 + 旋跳
-    ["RIGHT", "B"],      # 07: 右 + 跳
-    # ["RIGHT", "Y"],      # 08: 右 + 跑
-    ["LEFT", "A"],       # 09: 左 + 旋跳
-    ["LEFT", "B"],       # 10: 左 + 跳
-    # ["LEFT", "Y"],       # 11: 左 + 跑
-    # ["Y"],               # 12: 加速 (在這關不會單獨使用)
+    [],             # 00: NOOP
+    ["RIGHT"],      # 01: 走右
+    ["LEFT"],       # 02: 走左（可選）
+    ["DOWN"],       # 03: 下蹲
+    ["A"],          # 04: 旋跳 (Spin Jump)
+    ["B"],          # 05: 跳 (Jump)
+    ["RIGHT", "A"], # 06: 右 + 旋跳
+    ["RIGHT", "B"], # 07: 右 + 跳
+    # ["RIGHT", "Y"], # 08: 右 + 跑
+    ["LEFT", "A"],  # 09: 左 + 旋跳
+    ["LEFT", "B"],  # 10: 左 + 跳
+    # ["LEFT", "Y"],  # 11: 左 + 跑
+    # ["Y"],          # 12: 加速 (在這關不會單獨使用)
 ]
 
 import retro

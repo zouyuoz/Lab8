@@ -42,7 +42,7 @@ def _format_info(info: dict, max_len: int = 48) -> str:
         if key == "game_mode": key = "GM"
         if key == "is_cleared": continue
         if key == "lives": continue
-        
+
         fragment = f"{key}={value}"
         separator_len = 3 if current_line else 0
         if current_line_len + separator_len + len(fragment) > max_len:
@@ -58,31 +58,37 @@ def _format_info(info: dict, max_len: int = 48) -> str:
 
 
 def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: float, action: int, info: dict, font: ImageFont.ImageFont) -> np.ndarray:
-    img = Image.fromarray(frame)
-    draw = ImageDraw.Draw(img)
+    img = Image.fromarray(frame).convert("RGBA")
+    overlay = Image.new("RGBA", img.size, (0,0,0,0))
+    draw_overlay = ImageDraw.Draw(overlay)
+
     action_label = COMBOS[action] if action < len(COMBOS) else "UNKNOWN"
     info_str = _format_info(info)
     lines = [
         f"RWD={last_reward:.3f} | C_RWD={cumulative_reward:.3f} | ACT={action},{action_label}",
         f"{info_str}",
+        f"",
     ]
     padding = 4
-    bbox_sample = draw.textbbox((0, 0), "Ag", font=font)
+    bbox_sample = draw_overlay.textbbox((0, 0), "Ag", font=font)
     line_height = bbox_sample[3] - bbox_sample[1]
-    line_widths = []
-    for line in lines:
-        bbox = draw.textbbox((0, 0), line, font=font)
-        line_widths.append(bbox[2] - bbox[0])
+    # line_widths = []
+    # for line in lines:
+    #     bbox = draw_overlay.textbbox((0, 0), line, font=font)
+    #     line_widths.append(bbox[2] - bbox[0])
     # box_width = max(line_widths) + padding * 2
-    box_width = 250
+    box_width = 256
     box_height = line_height * len(lines) + padding * (len(lines) + 1)
     # box_height = line_height * 4 + padding * (4 + 1)
-    draw.rectangle([0, 0, box_width, box_height], fill=(0, 0, 0, 128))
+    draw_overlay.rectangle([0, 0, box_width, box_height], fill=(0, 0, 0, 160))
+
+    img = Image.alpha_composite(img, overlay)
+    draw = ImageDraw.Draw(img)
     y = padding
     for line in lines:
         draw.text((padding, y), line, fill=(255, 196, 0), font=font)
         y += line_height + padding
-    return np.array(img)
+    return np.array(img.convert("RGB"))
 
 
 def record_video(model: CustomPPO, game: str, state: str, out_dir: str, video_len: int, prefix: str):
@@ -103,7 +109,7 @@ def record_video(model: CustomPPO, game: str, state: str, out_dir: str, video_le
         frame = env.render()
         if frame is None: continue
         cumulative_reward += float(reward)
-        
+
         annotated = _annotate_frame(frame, cumulative_reward, float(reward), act_val, info, font)
         writer.append_data(annotated)
         if terminated or truncated:
