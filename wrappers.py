@@ -278,7 +278,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_coin = None
         self.max_x = 0
         self.stuck_counter = 0 # add penalty when stuck in wall
-        self.in_pipe = False
+        self.gate_remained = 2 # there are two blocks
 
     def _reset_trackers(self, info):
         self._prev_score = info.get("score", 0)
@@ -290,7 +290,6 @@ class RewardOverrideWrapper(gym.Wrapper):
         if not isinstance(info, dict):
             info = {}
         self._reset_trackers(info)
-        self.in_pipe = False
         return obs, info
 
     def step(self, action):
@@ -332,21 +331,6 @@ class RewardOverrideWrapper(gym.Wrapper):
         # Time Penalty
         reward -= 0.01
 
-        # Secret tunnel
-        # A_s = [8, 9, 11]
-        spin_jumps= [4, 6, 8] # "A"s, "8 is now leftA"
-        if (1900 < x_pos < 1930):
-            if dx == 0: reward += 0.025
-            if (280 < y_pos < 295) and action in spin_jumps:
-                reward += 1
-            elif y_pos > 300 and action == 3: # squat
-                reward += 10
-
-        is_in_pipe = info.get("pipe", False)
-        if is_in_pipe and not self.in_pipe:
-            reward += 10
-        self.in_pipe = is_in_pipe
-
         # Reward for score increments
         score = info.get("score", 0)
         if self._prev_score is None:
@@ -354,11 +338,27 @@ class RewardOverrideWrapper(gym.Wrapper):
         else:
             dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
             if dScore > 0:
-                if dScore == 5 and x_pos < 2000: # distroy secret tunnel surface
+                if dScore == 5 and (1850 < x_pos < 2000): # distroy secret tunnel surface
+                    self.gate_remained -= 1
                     reward += 10
                 else:
                     reward += 0.1 * dScore
                 self._prev_score = score
+
+        # Secret tunnel
+        is_in_pipe = info.get("pipe", False)
+        spin_jumps= [4, 6, 8] # "A"s, "8 is now leftA"
+        destroying_gate = (
+            (1900 < x_pos < 1930) and
+            ( 280 < y_pos <  295) and
+            dy != 0 and
+        	action in spin_jumps and
+			self.gate_remained != 0
+   		)
+        if destroying_gate:
+            reward += 1
+        if (1910 < x_pos < 1920) and y_pos > 310 and is_in_pipe: # squat (action == 3)
+            reward += 2
 
         coin = info.get("coins", 0)
         if self._prev_coin is None:
@@ -374,6 +374,12 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward = reward - 1.0 if reward < 10 else reward * 0.9
         elif terminated and not truncated:
             reward += self.win_reward
+
+        time_left = info.get("time_left")
+        is_cleared = info.get("is_cleared", False)
+        if time_left == 0 and not is_cleared:
+            reward = -1.0
+            terminated = True
 
         if terminated or truncated:
             self._reset_trackers(info)

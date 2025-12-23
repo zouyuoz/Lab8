@@ -46,7 +46,7 @@ def _format_info(info: dict, max_len: int = 48) -> str:
         fragment = f"{key}={value}"
         separator_len = 3 if current_line else 0
         if current_line_len + separator_len + len(fragment) > max_len:
-            lines.append(" | ".join(current_line) + " |" + " "*(max_len - current_line_len))
+            lines.append(" | ".join(current_line) + " |")
             current_line = [fragment]
             current_line_len = len(fragment)
         else:
