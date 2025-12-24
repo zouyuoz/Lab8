@@ -69,7 +69,6 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
         f"RWD={last_reward:.3f} | C_RWD={cumulative_reward:.3f} | ACT={action},{action_label}",
         f"{info_str}",
         f"",
-        f"",
     ]
     padding = 4
     bbox_sample = draw_overlay.textbbox((0, 0), "Ag", font=font)
@@ -97,7 +96,7 @@ def record_video(model: CustomPPO, game: str, state: str, out_dir: str, video_le
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{prefix}.mp4")
 
-    env = make_base_env(game, state, record=True)
+    env = make_base_env(game, state, record=False)
     fps = env.metadata.get("render_fps", 60)
     writer = imageio.get_writer(out_path, fps=fps)
     font = ImageFont.load_default()

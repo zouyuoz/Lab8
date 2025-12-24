@@ -130,10 +130,7 @@ class ExtraInfoWrapper(gym.Wrapper):
 
     GAME_MODE  = 0x0100
     ANIMATION  = 0x0071
-
-    SPRITE_STATUS = 0x14C8
-    SPRITE_ID     = 0x009E
-    SPRITE_PHASE  = 0x00C2
+    STOMPED_COUNTER = 0x1697 # Consecutive enemies stomped.
 
     def __init__(self, env):
         super().__init__(env)
@@ -175,19 +172,9 @@ class ExtraInfoWrapper(gym.Wrapper):
         if ram is None: return None
         return int(ram[self.ANIMATION])
 
-    def _read_sprite_info(self, ram):
-        if ram is None: return []
-        sprites = []
-        for i in range(12): # 讀取 12 個 slot 的狀態
-            status = int(ram[self.SPRITE_STATUS + i])
-            id = int(ram[self.SPRITE_ID + i])
-            if status != 0x08 or id != 0xAB: continue
-            phase = int(ram[self.SPRITE_PHASE + i])
-            sprites.append({
-                "slot": i,
-                "phase": phase # 00: Normal, 01: Smushed, 02: Dying
-            })
-        return sprites
+    def _read_stomped_counter(self, ram):
+        if ram is None: return None
+        return int(ram[self.STOMPED_COUNTER])
 
     def _inject_extra(self, info):
         ram       = self._get_ram()
@@ -196,7 +183,7 @@ class ExtraInfoWrapper(gym.Wrapper):
         y_pos     = self._read_y_pos(ram)
         game_mode = self._read_game_mode(ram)
         anime     = self._read_animation(ram)
-        sprites   = self._read_sprite_info(ram)
+        stomped   = self._read_stomped_counter(ram)
 
         if time_left is None and x_pos is None:
             return info
@@ -219,8 +206,8 @@ class ExtraInfoWrapper(gym.Wrapper):
         if anime is not None:
             info["anime"] = anime
             info["pipe"] = (anime == 5 or anime == 6)
-        if sprites:
-            info["sprites"] = sprites
+        if stomped is not None:
+            info["stomped"] = stomped
 
         return info
 
@@ -294,18 +281,16 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_score = 0
         self._prev_x = None
         self._prev_y = None
-        # self._prev_time = None
         self._prev_coin = None
-        # self.max_x = 0
+        self.cumu_reward = 0.0
         self.stuck_counter = 0 # add penalty when stuck in wall
         self.gate_remained = 2 # there are two blocks
-        self._prev_sprites = {}
 
     def _reset_trackers(self, info):
         self._prev_score = info.get("score", 0)
         self._prev_x = info.get("x_pos", 0)
         self._prev_y = info.get("y_pos", 315)
-        self._prev_sprites = {}
+        self.cumu_reward = 0.0
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -323,19 +308,19 @@ class RewardOverrideWrapper(gym.Wrapper):
         if info.get("is_cleared", False):
             return obs, self.win_reward, True, truncated, info
 
-        reward = 0.0
-        # Distance reward
+        reward = 0.0 # resets reward in this frame
+        
+        # 1. Distance reward
         x_pos = info.get("x_pos", 0)
         dx = x_pos - self._prev_x
 
         if dx != 0: self.stuck_counter = 0
         if dx > 0:
-            reward += dx * 0.02
-        # if x_pos > self.max_x:
-        #     self.max_x = x_pos
+            # reward += dx * 0.02
+            reward += dx * 0.01 if action not in [10, 11] else dx * 0.005 
         self._prev_x = x_pos
 
-        # Encourage agent to jump
+        # 2. Encourage agent to jump
         # Gain higher score when y_pos is low (high in obs)
         y_pos = info.get("y_pos", 0)
         dy = y_pos - self._prev_y
@@ -344,39 +329,29 @@ class RewardOverrideWrapper(gym.Wrapper):
             self.stuck_counter = 0
         self._prev_y = y_pos
 
-        # Stuck Penalty
-        action_bad = [0, 6]
+        # 3. Stuck Penalty
         if dx == 0 and dy == 0: self.stuck_counter += 1
-        if self.stuck_counter > 25 and action in action_bad:
+        if self.stuck_counter > 25:
             reward -= 0.02
 
-        # Time Penalty
+        # 4. Time Penalty
         reward -= 0.01
 
-        # Reward for score increments
+        # 5. Reward for score increments
         score = info.get("score", 0)
         dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
         if dScore > 0:
             if dScore == 5 and (1850 < x_pos < 2000): # distroy secret tunnel surface
                 self.gate_remained -= 1
-                reward += 10
+                reward += 1
             else:
-                reward += 0.1 * dScore
+                reward += 0.01 * dScore
             self._prev_score = score
 
         # Stomp Rex Reward
-        curr_sprites = info.get("sprites", [])
-        curr_state_map = {}
-        for s in curr_sprites:
-            slot = s['slot']
-            curr_phase = s['phase']
-            curr_state_map[slot] = curr_phase
-            prev_phase = self._prev_sprites.get(slot, 0)
-
-            # if prev_phase == 0 and curr_phase == 1: reward += 1.0
-            if prev_phase == 1 and curr_phase == 2: reward *= 2.5
-
-        self._prev_sprites = curr_state_map # 更新狀態
+        consecutive_enemies_stomped = info.get("stomped", 0)
+        if consecutive_enemies_stomped >= 2:
+            reward *= consecutive_enemies_stomped**1.2851 # 6^1.2851 ~= 10
 
         # Secret tunnel
         is_in_pipe = info.get("pipe", False)
@@ -388,10 +363,8 @@ class RewardOverrideWrapper(gym.Wrapper):
             action in spin_jumps and
             self.gate_remained != 0
            )
-        if destroying_gate:
-            reward += 1
-        if is_in_pipe: # squat (action == 3)
-            reward += 2
+        if destroying_gate: reward += 0.5
+        if is_in_pipe: reward += 1 # squat (action == 3)
 
         coin = info.get("coins", 0)
         if self._prev_coin is None:
@@ -403,15 +376,16 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         # Death & Win Handling
         if info.get("death", False):
-            # reward -= 1.0
-            reward = reward - 1.0 if reward < 10 else reward * 0.9
+            reward -= 1.0
         elif terminated and not truncated:
             reward += self.win_reward
+        
+        self.cumu_reward += reward
 
         time_left = info.get("time_left")
         is_cleared = info.get("is_cleared", False)
         if time_left == 0 and not is_cleared:
-            reward = -1.0
+            reward = -10.0
             terminated = True
 
         if terminated or truncated:
@@ -492,9 +466,9 @@ COMBOS = [
     ["B"],          # 05: 跳 (Jump)
     ["RIGHT", "A"], # 06: 右 + 旋跳
     ["RIGHT", "B"], # 07: 右 + 跳
-    # ["RIGHT", "Y"], # 08: 右 + 跑
-    ["LEFT", "A"],  # 09: 左 + 旋跳
-    ["LEFT", "B"],  # 10: 左 + 跳
+    ["LEFT", "A"],  # 08: 左 + 旋跳
+    ["LEFT", "B"],  # 09: 左 + 跳
+    # ["RIGHT", "Y"], # 10: 右 + 跑
     # ["LEFT", "Y"],  # 11: 左 + 跑
     # ["Y"],          # 12: 加速 (在這關不會單獨使用)
 ]
