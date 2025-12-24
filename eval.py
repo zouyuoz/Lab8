@@ -42,6 +42,7 @@ def _format_info(info: dict, max_len: int = 48) -> str:
         if key == "game_mode": key = "GM"
         if key == "is_cleared": continue
         if key == "lives": continue
+        if key == "inter_frames": continue
 
         fragment = f"{key}={value}"
         separator_len = 3 if current_line else 0
@@ -67,6 +68,7 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
     lines = [
         f"RWD={last_reward:.3f} | C_RWD={cumulative_reward:.3f} | ACT={action},{action_label}",
         f"{info_str}",
+        f"",
         f"",
     ]
     padding = 4
@@ -95,7 +97,7 @@ def record_video(model: CustomPPO, game: str, state: str, out_dir: str, video_le
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{prefix}.mp4")
 
-    env = make_base_env(game, state)
+    env = make_base_env(game, state, record=True)
     fps = env.metadata.get("render_fps", 60)
     writer = imageio.get_writer(out_path, fps=fps)
     font = ImageFont.load_default()
@@ -106,12 +108,14 @@ def record_video(model: CustomPPO, game: str, state: str, out_dir: str, video_le
         action, _ = model.predict(obs, deterministic=True)
         act_val = int(action) if hasattr(action, "__init__") else action
         obs, reward, terminated, truncated, info = env.step(action)
-        frame = env.render()
-        if frame is None: continue
         cumulative_reward += float(reward)
 
-        annotated = _annotate_frame(frame, cumulative_reward, float(reward), act_val, info, font)
-        writer.append_data(annotated)
+        raw_frames = info.get("inter_frames", [env.render()])
+        for frame in raw_frames:
+            if frame is None: continue
+            annotated = _annotate_frame(frame, cumulative_reward, float(reward), act_val, info, font)
+            writer.append_data(annotated)
+
         if terminated or truncated:
             obs, info = env.reset()
             cumulative_reward = 0.0

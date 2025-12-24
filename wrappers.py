@@ -125,13 +125,15 @@ class ExtraInfoWrapper(gym.Wrapper):
     # In SMW RAM, $0094 stores the low byte and $0095 stores the high byte.
     X_POS_LOW  = 0x0094
     X_POS_HIGH = 0x0095
-    # Add Y_POS_LOW and Y_POS_HIGH
     Y_POS_LOW  = 0x0096
     Y_POS_HIGH = 0x0097
 
     GAME_MODE  = 0x0100
     ANIMATION  = 0x0071
-    REX_STATUS = 0x14C8
+
+    SPRITE_STATUS = 0x14C8
+    SPRITE_ID     = 0x009E
+    SPRITE_PHASE  = 0x00C2
 
     def __init__(self, env):
         super().__init__(env)
@@ -173,21 +175,29 @@ class ExtraInfoWrapper(gym.Wrapper):
         if ram is None: return None
         return int(ram[self.ANIMATION])
 
-    def _read_rex_status(self, ram):
+    def _read_sprite_info(self, ram):
         if ram is None: return []
-        statuses = []
+        sprites = []
         for i in range(12): # 讀取 12 個 slot 的狀態
-            statuses.append(int(ram[self.REX_STATUS + i]))
-        return statuses
+            status = int(ram[self.SPRITE_STATUS + i])
+            if status != 0x08: continue
+            id = int(ram[self.SPRITE_ID + i])
+            phase = int(ram[self.SPRITE_PHASE + i])
+            sprites.append({
+                "slot": i,
+                "id": id,         # should be 0xAB
+                "phase": phase    # 00: Normal, 01: Smushed, 02: Dying
+            })
+        return sprites
 
     def _inject_extra(self, info):
-        ram        = self._get_ram()
-        time_left  = self._read_time_left(ram)
-        x_pos      = self._read_x_pos(ram)
-        y_pos      = self._read_y_pos(ram)
-        game_mode  = self._read_game_mode(ram)
-        anime      = self._read_animation(ram)
-        rex_status = self._read_rex_status(ram)
+        ram       = self._get_ram()
+        time_left = self._read_time_left(ram)
+        x_pos     = self._read_x_pos(ram)
+        y_pos     = self._read_y_pos(ram)
+        game_mode = self._read_game_mode(ram)
+        anime     = self._read_animation(ram)
+        sprites   = self._read_sprite_info(ram)
 
         if time_left is None and x_pos is None:
             return info
@@ -210,8 +220,8 @@ class ExtraInfoWrapper(gym.Wrapper):
         if anime is not None:
             info["anime"] = anime
             info["pipe"] = (anime == 5 or anime == 6)
-        if rex_status:
-            info["rex_status"] = rex_status
+        if sprites:
+            info["sprites"] = sprites
 
         return info
 
@@ -290,12 +300,13 @@ class RewardOverrideWrapper(gym.Wrapper):
         # self.max_x = 0
         self.stuck_counter = 0 # add penalty when stuck in wall
         self.gate_remained = 2 # there are two blocks
-        self._prev_rex_status = [0] * 12 # 紀錄上一幀的狀態
+        self._prev_sprites = {}
 
     def _reset_trackers(self, info):
         self._prev_score = info.get("score", 0)
         self._prev_x = info.get("x_pos", 0)
         self._prev_y = info.get("y_pos", 315)
+        self._prev_sprites = {}
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -355,16 +366,20 @@ class RewardOverrideWrapper(gym.Wrapper):
             self._prev_score = score
 
         # Stomp Rex Reward
-        curr_status = info.get("rex_status", [0]*12)
-        for i in range(12):
-            prev_s = self._prev_rex_status[i]
-            curr_s = curr_status[i]
-            # 偵測狀態變化：從 03 (smushed) 變成 02 (killed)
-            # This will naturally get dScore = 40 (or more if it's in a combo)
-            if prev_s == 3 and curr_s == 2:
-                reward *= 2.5 # 4+ * 2.5 = 10+
+        curr_sprites = info.get("sprites", [])
+        curr_state_map = {}
+        for s in curr_sprites:
+            slot = s['slot']
+            curr_phase = s['phase']
+            curr_state_map[slot] = curr_phase
 
-        self._prev_rex_status = curr_status # 更新狀態
+            prev_phase = self._prev_sprites.get(slot, 0)
+
+            if s['id'] == 0xAB: # rex's ID is 0xAB
+                if prev_phase == 0 and curr_phase == 1: reward += 1.0
+                elif prev_phase == 1 and curr_phase >= 2: reward *= 2.5
+
+        self._prev_sprites = curr_sprites # 更新狀態
 
         # Secret tunnel
         is_in_pipe = info.get("pipe", False)
@@ -415,18 +430,22 @@ class InfoLogger(gym.Wrapper):
         return obs, reward, terminated, truncated, info
 
 class SkipFrameWrapper(gym.Wrapper):
-    def __init__(self, env, skip=4):
+    def __init__(self, env, skip=4, record_all=False):
         super().__init__(env)
         self._skip = skip
+        self.record_all = record_all
 
     def step(self, action):
         total_reward = 0.0
         obs, terminated, truncated = None, False, False
         info = {}
+        frames = []
 
         # 讓遊戲引擎連續跑 skip 次
         for _ in range(self._skip):
             obs, reward, term, trunc, info = self.env.step(action)
+            if self.record_all:
+                frames.append(self.env.render())
             total_reward += reward
             terminated = term
             truncated = trunc
@@ -434,7 +453,8 @@ class SkipFrameWrapper(gym.Wrapper):
             # 如果中間死掉了或遊戲結束，就提早跳出
             if terminated or truncated:
                 break
-
+            if self.record_all:
+                info["inter_frames"] = frames
         return obs, total_reward, terminated, truncated, info
 
 class FrameStackWrapper(gym.Wrapper):
@@ -484,9 +504,9 @@ COMBOS = [
 
 import retro
 
-def make_base_env(game: str, state: str):
+def make_base_env(game: str, state: str, record: bool=False):
     env = retro.make(game=game, state=state, render_mode="rgb_array")
-    env = SkipFrameWrapper(env, skip=4) # 先加入 skip frame
+    env = SkipFrameWrapper(env, skip=4, record_all=record) # 先加入 skip frame
     env = Monitor(env) # 記錄到的 step 會是 1/4
     env = PreprocessObsWrapper(env) # 主要是 resize
     env = FrameStackWrapper(env, n_frames=4) # 做 stack，已經是 skip-framed 畫面
