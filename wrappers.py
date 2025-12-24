@@ -180,13 +180,12 @@ class ExtraInfoWrapper(gym.Wrapper):
         sprites = []
         for i in range(12): # 讀取 12 個 slot 的狀態
             status = int(ram[self.SPRITE_STATUS + i])
-            if status != 0x08: continue
             id = int(ram[self.SPRITE_ID + i])
+            if status != 0x08 or id != 0xAB: continue
             phase = int(ram[self.SPRITE_PHASE + i])
             sprites.append({
                 "slot": i,
-                "id": id,         # should be 0xAB
-                "phase": phase    # 00: Normal, 01: Smushed, 02: Dying
+                "phase": phase # 00: Normal, 01: Smushed, 02: Dying
             })
         return sprites
 
@@ -321,7 +320,7 @@ class RewardOverrideWrapper(gym.Wrapper):
             info = {}
 
         # if win, immediately return
-        if info.get("is_cleard", False):
+        if info.get("is_cleared", False):
             return obs, self.win_reward, True, truncated, info
 
         reward = 0.0
@@ -372,14 +371,12 @@ class RewardOverrideWrapper(gym.Wrapper):
             slot = s['slot']
             curr_phase = s['phase']
             curr_state_map[slot] = curr_phase
-
             prev_phase = self._prev_sprites.get(slot, 0)
 
-            if s['id'] == 0xAB: # rex's ID is 0xAB
-                if prev_phase == 0 and curr_phase == 1: reward += 1.0
-                elif prev_phase == 1 and curr_phase >= 2: reward *= 2.5
+            # if prev_phase == 0 and curr_phase == 1: reward += 1.0
+            if prev_phase == 1 and curr_phase == 2: reward *= 2.5
 
-        self._prev_sprites = curr_sprites # 更新狀態
+        self._prev_sprites = curr_state_map # 更新狀態
 
         # Secret tunnel
         is_in_pipe = info.get("pipe", False)
