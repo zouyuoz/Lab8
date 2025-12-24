@@ -129,8 +129,9 @@ class ExtraInfoWrapper(gym.Wrapper):
     Y_POS_LOW  = 0x0096
     Y_POS_HIGH = 0x0097
 
-    GAME_MODE = 0x0100
-    ANIMATION = 0x0071
+    GAME_MODE  = 0x0100
+    ANIMATION  = 0x0071
+    REX_STATUS = 0x14C8
 
     def __init__(self, env):
         super().__init__(env)
@@ -172,13 +173,21 @@ class ExtraInfoWrapper(gym.Wrapper):
         if ram is None: return None
         return int(ram[self.ANIMATION])
 
+    def _read_rex_status(self, ram):
+        if ram is None: return []
+        statuses = []
+        for i in range(12): # 讀取 12 個 slot 的狀態
+            statuses.append(int(ram[self.REX_STATUS + i]))
+        return statuses
+
     def _inject_extra(self, info):
-        ram       = self._get_ram()
-        time_left = self._read_time_left(ram)
-        x_pos     = self._read_x_pos(ram)
-        y_pos     = self._read_y_pos(ram)
-        game_mode = self._read_game_mode(ram)
-        anime     = self._read_animation(ram)
+        ram        = self._get_ram()
+        time_left  = self._read_time_left(ram)
+        x_pos      = self._read_x_pos(ram)
+        y_pos      = self._read_y_pos(ram)
+        game_mode  = self._read_game_mode(ram)
+        anime      = self._read_animation(ram)
+        rex_status = self._read_rex_status(ram)
 
         if time_left is None and x_pos is None:
             return info
@@ -201,6 +210,8 @@ class ExtraInfoWrapper(gym.Wrapper):
         if anime is not None:
             info["anime"] = anime
             info["pipe"] = (anime == 5 or anime == 6)
+        if rex_status:
+            info["rex_status"] = rex_status
 
         return info
 
@@ -271,14 +282,15 @@ class RewardOverrideWrapper(gym.Wrapper):
     ):
         super().__init__(env)
         self.win_reward = win_reward
-        self._prev_score = None
+        self._prev_score = 0
         self._prev_x = None
         self._prev_y = None
         # self._prev_time = None
         self._prev_coin = None
-        self.max_x = 0
+        # self.max_x = 0
         self.stuck_counter = 0 # add penalty when stuck in wall
         self.gate_remained = 2 # there are two blocks
+        self._prev_rex_status = [0] * 12 # 紀錄上一幀的狀態
 
     def _reset_trackers(self, info):
         self._prev_score = info.get("score", 0)
@@ -297,7 +309,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         if not isinstance(info, dict):
             info = {}
 
-        # if win, imidiately return
+        # if win, immediately return
         if info.get("is_cleard", False):
             return obs, self.win_reward, True, truncated, info
 
@@ -309,8 +321,8 @@ class RewardOverrideWrapper(gym.Wrapper):
         if dx != 0: self.stuck_counter = 0
         if dx > 0:
             reward += dx * 0.02
-        if x_pos > self.max_x:
-            self.max_x = x_pos
+        # if x_pos > self.max_x:
+        #     self.max_x = x_pos
         self._prev_x = x_pos
 
         # Encourage agent to jump
@@ -333,17 +345,26 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         # Reward for score increments
         score = info.get("score", 0)
-        if self._prev_score is None:
+        dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
+        if dScore > 0:
+            if dScore == 5 and (1850 < x_pos < 2000): # distroy secret tunnel surface
+                self.gate_remained -= 1
+                reward += 10
+            else:
+                reward += 0.1 * dScore
             self._prev_score = score
-        else:
-            dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
-            if dScore > 0:
-                if dScore == 5 and (1850 < x_pos < 2000): # distroy secret tunnel surface
-                    self.gate_remained -= 1
-                    reward += 10
-                else:
-                    reward += 0.1 * dScore
-                self._prev_score = score
+
+        # Stomp Rex Reward
+        curr_status = info.get("rex_status", [0]*12)
+        for i in range(12):
+            prev_s = self._prev_rex_status[i]
+            curr_s = curr_status[i]
+            # 偵測狀態變化：從 03 (smushed) 變成 02 (killed)
+            # This will naturally get dScore = 40 (or more if it's in a combo)
+            if prev_s == 3 and curr_s == 2:
+                reward *= 2.5 # 4+ * 2.5 = 10+
+
+        self._prev_rex_status = curr_status # 更新狀態
 
         # Secret tunnel
         is_in_pipe = info.get("pipe", False)
@@ -352,12 +373,12 @@ class RewardOverrideWrapper(gym.Wrapper):
             (1900 < x_pos < 1930) and
             ( 280 < y_pos <  295) and
             dy != 0 and
-        	action in spin_jumps and
-			self.gate_remained != 0
-   		)
+            action in spin_jumps and
+            self.gate_remained != 0
+           )
         if destroying_gate:
             reward += 1
-        if (1910 < x_pos < 1920) and y_pos > 310 and is_in_pipe: # squat (action == 3)
+        if is_in_pipe: # squat (action == 3)
             reward += 2
 
         coin = info.get("coins", 0)
