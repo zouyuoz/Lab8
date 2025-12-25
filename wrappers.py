@@ -384,11 +384,12 @@ class RewardOverrideWrapper(gym.Wrapper):
         if destroying_gate: reward += 0.5
         into_pipe = (
             (1910 < x_pos < 1920) and
-               y_pos > 300 and
-               action == 3 # 'Down'(squat)
+            y_pos > 300 and
+            action == 3 # 'Down'(squat)
         )
-        if into_pipe: reward += 1
-        if is_in_pipe: reward += 1
+        if into_pipe: reward += 0.025
+        if into_pipe and dy != 0: reward += 0.475
+        if is_in_pipe: reward += 0.5
 
         # 7. Coin Reward
         coin = info.get("coins", 0)
