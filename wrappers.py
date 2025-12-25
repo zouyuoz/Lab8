@@ -349,7 +349,7 @@ class RewardOverrideWrapper(gym.Wrapper):
                 base_score_reward = 0.01 * dScore
                 # Stomp Rex Reward
                 stomped_counter = info.get("stomped", 0)
-                if stomped_counter != 0 and dx <= 2:
+                if stomped_counter != 0 and dx <= 5:
                     base_score_reward *= 2.5
                 if stomped_counter >= 2:
                     base_score_reward *= stomped_counter**1.2851 # 6^1.2851 ~= 10
