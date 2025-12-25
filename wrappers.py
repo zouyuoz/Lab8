@@ -309,7 +309,7 @@ class RewardOverrideWrapper(gym.Wrapper):
             return obs, self.win_reward, True, truncated, info
 
         reward = 0.0 # resets reward in this frame
-        
+
         # 1. Distance reward
         x_pos = info.get("x_pos", 0)
         dx = x_pos - self._prev_x
@@ -317,7 +317,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         if dx != 0: self.stuck_counter = 0
         if dx > 0:
             # reward += dx * 0.02
-            reward += dx * 0.01 if action not in [10, 11] else dx * 0.005 
+            reward += dx * 0.01 if action not in [10, 11] else dx * 0.005
         self._prev_x = x_pos
 
         # 2. Encourage agent to jump
@@ -341,17 +341,20 @@ class RewardOverrideWrapper(gym.Wrapper):
         score = info.get("score", 0)
         dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
         if dScore > 0:
-            if dScore == 5 and (1850 < x_pos < 2000): # distroy secret tunnel surface
+            # if dScore == 5 and (1850 < x_pos < 2000): # distroy secret tunnel surface
+            if dScore == 5 and (x_pos < 2000): # distroy secret tunnel surface
                 self.gate_remained -= 1
                 reward += 1
             else:
-                reward += 0.01 * dScore
+                base_score_reward = 0.01 * dScore
+                # Stomp Rex Reward
+                stomped_counter = info.get("stomped", 0)
+                if stomped_counter != 0 and dx <= 2:
+                    base_score_reward *= 2.5
+                if stomped_counter >= 2:
+                    base_score_reward *= stomped_counter**1.2851 # 6^1.2851 ~= 10
+                reward += base_score_reward
             self._prev_score = score
-
-        # Stomp Rex Reward
-        consecutive_enemies_stomped = info.get("stomped", 0)
-        if consecutive_enemies_stomped >= 2:
-            reward *= consecutive_enemies_stomped**1.2851 # 6^1.2851 ~= 10
 
         # Secret tunnel
         is_in_pipe = info.get("pipe", False)
@@ -379,7 +382,7 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward -= 1.0
         elif terminated and not truncated:
             reward += self.win_reward
-        
+
         self.cumu_reward += reward
 
         time_left = info.get("time_left")

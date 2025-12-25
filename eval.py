@@ -96,7 +96,7 @@ def record_video(model: CustomPPO, game: str, state: str, out_dir: str, video_le
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{prefix}.mp4")
 
-    env = make_base_env(game, state, record=False)
+    env = make_base_env(game, state, record=True)
     fps = env.metadata.get("render_fps", 60)
     writer = imageio.get_writer(out_path, fps=fps)
     font = ImageFont.load_default()
