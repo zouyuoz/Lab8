@@ -108,7 +108,7 @@ class LifeTerminationWrapper(gym.Wrapper):
                 info = dict(info)
                 info["death"] = True
 
-        if info.get("is_cleared", False):
+        if info.get("game_mode", False) == 13:
             terminated = True
 
         return obs, reward, terminated, truncated, info
@@ -130,6 +130,7 @@ class ExtraInfoWrapper(gym.Wrapper):
 
     GAME_MODE  = 0x0100
     ANIMATION  = 0x0071
+    SPIN_JUMP  = 0x140D
     STOMPED_COUNTER = 0x1697 # Consecutive enemies stomped.
 
     def __init__(self, env):
@@ -176,6 +177,10 @@ class ExtraInfoWrapper(gym.Wrapper):
         if ram is None: return None
         return int(ram[self.STOMPED_COUNTER])
 
+    def _read_spin_jump(self, ram):
+        if ram is None: return False
+        return int(ram[self.SPIN_JUMP]) != 0
+
     def _inject_extra(self, info):
         ram       = self._get_ram()
         time_left = self._read_time_left(ram)
@@ -183,6 +188,7 @@ class ExtraInfoWrapper(gym.Wrapper):
         y_pos     = self._read_y_pos(ram)
         game_mode = self._read_game_mode(ram)
         anime     = self._read_animation(ram)
+        spin_jump = self._read_spin_jump(ram)
         stomped   = self._read_stomped_counter(ram)
 
         if time_left is None and x_pos is None:
@@ -202,12 +208,12 @@ class ExtraInfoWrapper(gym.Wrapper):
             info["y_pos"] = y_pos
         if game_mode is not None:
             info["game_mode"] = game_mode
-            info["is_cleared"] = (game_mode == 14)
         if anime is not None:
             info["anime"] = anime
-            info["pipe"] = (anime == 5 or anime == 6)
         if stomped is not None:
             info["stomped"] = stomped
+        if spin_jump is not None:
+            info["sjf"] = spin_jump
 
         return info
 
@@ -305,7 +311,7 @@ class RewardOverrideWrapper(gym.Wrapper):
             info = {}
 
         # if win, immediately return
-        if info.get("is_cleared", False):
+        if info.get("game_mode", False) == 13:
             return obs, self.win_reward, True, truncated, info
 
         reward = 0.0 # resets reward in this frame
@@ -317,7 +323,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         if dx != 0: self.stuck_counter = 0
         if dx > 0:
             # reward += dx * 0.02
-            reward += dx * 0.01 if action not in [10, 11] else dx * 0.005
+            reward += dx * 0.0075 if action not in [10, 11] else dx * 0.0025
         self._prev_x = x_pos
 
         # 2. Encourage agent to jump
@@ -335,30 +341,42 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward -= 0.02
 
         # 4. Time Penalty
-        reward -= 0.01
+        if info.get("anime") != 2: reward -= 0.01
 
         # 5. Reward for score increments
         score = info.get("score", 0)
         dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
         if dScore > 0:
-            # if dScore == 5 and (1850 < x_pos < 2000): # distroy secret tunnel surface
-            if dScore == 5 and (x_pos < 2000): # distroy secret tunnel surface
+            # 5-1: distroy secret tunnel surface
+            if dScore == 5 and (1850 < x_pos < 2000): # 
                 self.gate_remained -= 1
                 reward += 1
             else:
                 base_score_reward = 0.01 * dScore
-                # Stomp Rex Reward
+                # 5-2: Stomp Reward
                 stomped_counter = info.get("stomped", 0)
-                if stomped_counter != 0 and dx <= 5:
-                    base_score_reward *= 2.5
+                # stomped_counter != 0 indicates the score source is defeating enemy
+                if stomped_counter != 0:
+                    # 5-2-1: Slow Down Reward
+                    if dx <= 5:
+                        base_score_reward += 0.05 + ((10 - dx)*0.01)
+
+                    spin_jump_flag = info.get("sjf")
+                    # 5-2-2: Spin Jump Penalty (can't get second state score)
+                    if spin_jump_flag:
+                        base_score_reward *= 0.625
+                    # 5-2-3: Normal Jump Reward
+                    else:
+                        base_score_reward += 0.25
+
                 if stomped_counter >= 2:
-                    base_score_reward *= stomped_counter**1.2851 # 6^1.2851 ~= 10
+                    base_score_reward *= (stomped_counter**1.2851) # 6^1.2851 ~= 10
                 reward += base_score_reward
             self._prev_score = score
 
-        # Secret tunnel
-        is_in_pipe = info.get("pipe", False)
-        spin_jumps= [4, 6, 8] # "A"s, "8 is now leftA"
+        # 6. Secret tunnel
+        is_in_pipe = info.get("anime", False) == 6 # 6: 進; 5: 出
+        spin_jumps= [4, 6, 8] # actions that contains "A"
         destroying_gate = (
             (1900 < x_pos < 1930) and
             ( 280 < y_pos <  295) and
@@ -369,6 +387,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         if destroying_gate: reward += 0.5
         if is_in_pipe: reward += 1 # squat (action == 3)
 
+        # 7. Coin Reward
         coin = info.get("coins", 0)
         if self._prev_coin is None:
             self._prev_coin = coin
@@ -377,7 +396,7 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward += dCoin # usually increase by 1
             self._prev_coin = coin
 
-        # Death & Win Handling
+        # 8. Death & Win Handling
         if info.get("death", False):
             reward -= 1.0
         elif terminated and not truncated:
@@ -385,8 +404,9 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         self.cumu_reward += reward
 
+        # 9. Run-out-time Penalty
         time_left = info.get("time_left")
-        is_cleared = info.get("is_cleared", False)
+        is_cleared = info.get("game_mode", False) == 13
         if time_left == 0 and not is_cleared:
             reward = -10.0
             terminated = True
@@ -471,8 +491,8 @@ COMBOS = [
     ["RIGHT", "B"], # 07: 右 + 跳
     ["LEFT", "A"],  # 08: 左 + 旋跳
     ["LEFT", "B"],  # 09: 左 + 跳
-    # ["RIGHT", "Y"], # 10: 右 + 跑
-    # ["LEFT", "Y"],  # 11: 左 + 跑
+    ["RIGHT", "Y"], # 10: 右 + 跑
+    ["LEFT", "Y"],  # 11: 左 + 跑
     # ["Y"],          # 12: 加速 (在這關不會單獨使用)
 ]
 

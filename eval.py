@@ -43,6 +43,7 @@ def _format_info(info: dict, max_len: int = 48) -> str:
         if key == "is_cleared": continue
         if key == "lives": continue
         if key == "inter_frames": continue
+        # if key == "sprites": continue
 
         fragment = f"{key}={value}"
         separator_len = 3 if current_line else 0
@@ -68,6 +69,7 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
     lines = [
         f"RWD={last_reward:.3f} | C_RWD={cumulative_reward:.3f} | ACT={action},{action_label}",
         f"{info_str}",
+        f"",
         f"",
     ]
     padding = 4
