@@ -191,7 +191,7 @@ class CustomPPO(OnPolicyAlgorithm):
                 # Normalization does not make sense if mini batchsize == 1, see GH issue #325
                 if self.normalize_advantage and len(advantages) > 1:
                     advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-                    
+
                 # ratio between old and new policy, should be one at the first iteration
                 ratio = torch.exp(log_prob - rollout_data.old_log_prob)
                 # clipped surrogate loss
@@ -207,7 +207,7 @@ class CustomPPO(OnPolicyAlgorithm):
                 clip_fraction = torch.mean((torch.abs(ratio - 1) > self.clip_range).float()).item()
                 clip_fractions.append(clip_fraction)
                 values_pred = values
-                
+
                 # Value loss using the TD(gae_lambda) target
                 value_loss = F.mse_loss(rollout_data.returns, values_pred)
                 value_losses.append(value_loss.item())
@@ -218,7 +218,7 @@ class CustomPPO(OnPolicyAlgorithm):
                 else:
                     entropy_loss = -torch.mean(entropy)
                 entropy_losses.append(entropy_loss.item())
-                
+
                 ################################
                 # YOUR CODE HERE
                 # Compute KL divergence between old and new policy
@@ -250,19 +250,20 @@ class CustomPPO(OnPolicyAlgorithm):
         self.logger.record("train/approx_kl"     , np.mean(approx_kl_divs))
         self.logger.record("train/policyGradLoss", np.mean(pg_losses))
         self.logger.record("train/explained_variance"  , explained_variance_)
-        
+
         if hasattr(self.policy, "log_std"):
             self.logger.record("train/std", torch.exp(self.policy.log_std).mean().item())
-            
+
         mean_step_reward = np.mean(self.rollout_buffer.rewards)
         self.logger.record("train/mean_step_reward", mean_step_reward)
-        
-        self.logger.record("train/n_updates", self._n_updates, exclude="tensorboard")
-        
+
+        percent_progress = self._n_updates % 128
+        self.logger.record("train/n_updates", f"{percent_progress}/128)", exclude="tensorboard")
+
         # self.logger.record("train/clip_fraction" , np.mean(clip_fractions))
         # self.logger.record("train/clip_range", self.clip_range)
 
-        
+
     def learn(
         self,
         total_timesteps: int,

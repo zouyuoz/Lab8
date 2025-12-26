@@ -280,7 +280,7 @@ class RewardOverrideWrapper(gym.Wrapper):
     def __init__(
         self,
         env,
-        win_reward: float = 2.5,
+        win_reward: float = 10.0,
     ):
         super().__init__(env)
         self.win_reward = win_reward
@@ -351,7 +351,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
         if dScore > 0:
             # 5-1: distroy secret tunnel surface
-            if dScore == 5 and (1850 < x_pos < 2000): #
+            if dScore == 5 and (x_pos < 2000): #
                 self.gate_remained -= 1
                 reward += 1
             else:
@@ -402,7 +402,7 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         # 8. Death & Win Handling
         if info.get("death", False):
-            reward -= 1.0
+            reward -= 10.0
         elif terminated and not truncated:
             reward += self.win_reward
 

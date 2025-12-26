@@ -70,7 +70,6 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
         f"RWD={last_reward:.3f} | C_RWD={cumulative_reward:.3f} | ACT={action},{action_label}",
         f"{info_str}",
         f"",
-        f"",
     ]
     padding = 4
     bbox_sample = draw_overlay.textbbox((0, 0), "Ag", font=font)
