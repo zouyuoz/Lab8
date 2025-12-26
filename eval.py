@@ -93,11 +93,11 @@ def _annotate_frame(frame: np.ndarray, cumulative_reward: float, last_reward: fl
     return np.array(img.convert("RGB"))
 
 
-def record_video(model: CustomPPO, game: str, state: str, out_dir: str, video_len: int, prefix: str):
+def record_video(model: CustomPPO, game: str, state: str, out_dir: str, video_len: int, prefix: str, record: bool=False):
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"{prefix}.mp4")
 
-    env = make_base_env(game, state, record=False)
+    env = make_base_env(game, state, record=record)
     fps = env.metadata.get("render_fps", 60)
     writer = imageio.get_writer(out_path, fps=fps)
     font = ImageFont.load_default()

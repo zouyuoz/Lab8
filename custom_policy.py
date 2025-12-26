@@ -258,7 +258,7 @@ class CustomPPO(OnPolicyAlgorithm):
         self.logger.record("train/mean_step_reward", mean_step_reward)
 
         percent_progress = self._n_updates % 128
-        self.logger.record("train/n_updates", f"{percent_progress}/128)", exclude="tensorboard")
+        self.logger.record("train/n_updates", f"{percent_progress}/128", exclude="tensorboard")
 
         # self.logger.record("train/clip_fraction" , np.mean(clip_fractions))
         # self.logger.record("train/clip_range", self.clip_range)
