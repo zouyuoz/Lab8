@@ -311,11 +311,10 @@ class RewardOverrideWrapper(gym.Wrapper):
             info = {}
 
         # if win, immediately return
-        if info.get("game_mode", False) == 12:
+        if info.get("game_mode", False) == 13:
             return obs, self.win_reward, True, truncated, info
 
         reward = 0.0 # resets reward in this frame
-        const = 0.375 # (150 / 400)
 
         # 1. Distance reward
         x_pos = info.get("x_pos", 0)
@@ -327,8 +326,15 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward += dx * 0.0075 if action not in [10, 11] else dx * 0.005
         self._prev_x = x_pos
 
+        # 2. Encourage agent to jump
+        # Gain higher score when y_pos is low (high in obs)
         y_pos = info.get("y_pos", 0)
         dy = y_pos - self._prev_y
+        if dy < 0:
+            reward += 1 / max(y_pos, 125)
+            self.stuck_counter = 0
+        self._prev_y = y_pos
+
         # 3. Stuck Penalty
         if dx == 0 and dy == 0: self.stuck_counter += 1
         if self.stuck_counter > 25:
@@ -339,10 +345,51 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         # 5. Reward for score increments
         score = info.get("score", 0)
+        stomped_counter = info.get("stomped", 0)
+        is_spin_jump = info.get("sjf")
+
         dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
         if dScore > 0:
-            reward += dScore * 0.1 * const
+            # 5-1: distroy secret tunnel surface
+            if dScore == 5 and (x_pos < 2000): #
+                self.gate_remained -= 1
+                reward += 1
+            else:
+                base_score_reward = 0.01 * dScore
+                # 5-2: Stomp Reward
+                # stomped_counter != 0 indicates the score source is defeating enemy
+                if stomped_counter != 0:
+                    # 5-2-1: Slow Down Reward
+                    if dx <= 5: base_score_reward += (10 - dx)*0.01
+
+                    # 5-2-2: Spin Jump Penalty (can't get second state score)
+                    if is_spin_jump: base_score_reward *= 0.625
+                    # 5-2-3: Normal Jump Reward
+                    else: base_score_reward += 0.25
+
+                if stomped_counter >= 2:
+                    base_score_reward *= (stomped_counter**1.2851) # 6^1.2851 ~= 10
+                reward += base_score_reward
+
             self._prev_score = score
+
+        # 6. Secret tunnel
+        is_in_pipe = info.get("anime", False) == 6 # 6: 進; 5: 出
+        destroying_gate = (
+            (1900 < x_pos < 1930) and
+            ( 280 < y_pos <  295) and
+            is_spin_jump and
+            self.gate_remained != 0
+        )
+        if destroying_gate: reward += 0.5
+        into_pipe = (
+            (1910 < x_pos < 1920) and
+            y_pos > 300 and
+            action == 3 # 'Down'(squat)
+        )
+        if into_pipe: reward += 0.025
+        if into_pipe and dy != 0: reward += 0.475
+        if is_in_pipe: reward += 0.5
 
         # 7. Coin Reward
         coin = info.get("coins", 0)
@@ -350,7 +397,7 @@ class RewardOverrideWrapper(gym.Wrapper):
             self._prev_coin = coin
         else:
             dCoin = coin - self._prev_coin
-            reward += dCoin * const # usually increase by 1
+            reward += dCoin # usually increase by 1
             self._prev_coin = coin
 
         # 8. Death & Win Handling
