@@ -97,6 +97,7 @@ class LifeTerminationWrapper(gym.Wrapper):
         lives = self._get_lives(info)
 
         died = False
+        if info.get("anime") == 0x09: died == True
         if lives is not None and self._prev_lives is not None:
             if lives < self._prev_lives:
                 died = True
@@ -213,7 +214,7 @@ class ExtraInfoWrapper(gym.Wrapper):
         if stomped is not None:
             info["stomped"] = stomped
         if spin_jump is not None:
-            info["sjf"] = spin_jump
+            info["SJF"] = spin_jump
 
         return info
 
@@ -280,15 +281,12 @@ class RewardOverrideWrapper(gym.Wrapper):
     def __init__(
         self,
         env,
-        win_reward: float = 10.0,
     ):
         super().__init__(env)
-        self.win_reward = win_reward
         self._prev_score = 0
         self._prev_x = None
         self._prev_y = None
         self._prev_coin = None
-        self.cumu_reward = 0.0
         self.stuck_counter = 0 # add penalty when stuck in wall
         self.gate_remained = 2 # there are two blocks
 
@@ -296,7 +294,6 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_score = info.get("score", 0)
         self._prev_x = info.get("x_pos", 0)
         self._prev_y = info.get("y_pos", 315)
-        self.cumu_reward = 0.0
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -312,10 +309,9 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         # if win, immediately return
         if info.get("game_mode", False) == 12:
-            return obs, self.win_reward, True, truncated, info
+            return obs, 0.0, True, truncated, info
 
         reward = 0.0 # resets reward in this frame
-        const = 0.375 # (150 / 400)
 
         # 1. Distance reward
         x_pos = info.get("x_pos", 0)
@@ -324,25 +320,48 @@ class RewardOverrideWrapper(gym.Wrapper):
         if dx != 0: self.stuck_counter = 0
         if dx > 0:
             # reward += dx * 0.02
-            reward += dx * 0.0075 if action not in [10, 11] else dx * 0.005
+            reward += dx * 0.0075 if action not in [10, 11] else dx * 0.0045
         self._prev_x = x_pos
 
         y_pos = info.get("y_pos", 0)
         dy = y_pos - self._prev_y
+
         # 3. Stuck Penalty
         if dx == 0 and dy == 0: self.stuck_counter += 1
-        if self.stuck_counter > 25:
-            reward -= 0.02
+        if self.stuck_counter > 25: reward -= 0.02
 
         # 4. Time Penalty
         if info.get("anime") != 2: reward -= 0.01
 
         # 5. Reward for score increments
         score = info.get("score", 0)
+        stomped_counter = info.get("stomped", 0)
+        is_spin_jump = info.get("SJF")
+
         dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
         if dScore > 0:
-            reward += dScore * 0.1 * const
+            # Special case: destroy gate
+            if dScore == 5:
+                if x_pos < 4500 : reward += 3.75 # dScore might be 5 if in bonus phase (x~=48XX)
+                # else: reward += 0
+            else:
+                base_score_reward = 0.1 * dScore
+                # 5-2: Stomp Reward
+                # stomped_counter > 0 indicates the score source is defeating enemy
+                if stomped_counter > 0:
+                    # 5-2-1: Combo Reward
+                    base_score_reward *= (1 + 0.02*(stomped_counter - 1))
+                    # 5-2-2: Slow Down Reward
+                    if dx <= 5: base_score_reward += (10 - dx)*0.0075
+                    # 5-2-3: Spin Jump Penalty (can't get second state score)
+                    if is_spin_jump: base_score_reward *= 0.625
+
+                reward += base_score_reward
             self._prev_score = score
+
+        # 6. Secret Tunnel
+        is_in_pipe = info.get("anime", False) == 6 # 6: 進; 5: 出
+        if is_in_pipe: reward += 0.5
 
         # 7. Coin Reward
         coin = info.get("coins", 0)
@@ -350,23 +369,20 @@ class RewardOverrideWrapper(gym.Wrapper):
             self._prev_coin = coin
         else:
             dCoin = coin - self._prev_coin
-            reward += dCoin * const # usually increase by 1
+            reward += dCoin # usually increase by 1
             self._prev_coin = coin
 
-        # 8. Death & Win Handling
-        if info.get("death", False):
-            reward -= 10.0
-        elif terminated and not truncated:
-            reward += self.win_reward
+        # kinda normalize
+        factor = 0.3
+        reward *= factor
 
-        self.cumu_reward += reward
-
-        # 9. Run-out-time Penalty
-        time_left = info.get("time_left")
-        is_cleared = info.get("game_mode", False) == 13
-        if time_left == 0 and not is_cleared:
-            reward = -10.0
+        # 8. Death Handling
+        died = info.get("anime") == 0x09
+        if died:
             terminated = True
+            reward -= 10.0
+            time_left = info.get("time_left")
+            if time_left == 0: reward -= 10.0
 
         if terminated or truncated:
             self._reset_trackers(info)

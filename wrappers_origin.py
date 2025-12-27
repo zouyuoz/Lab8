@@ -108,7 +108,7 @@ class LifeTerminationWrapper(gym.Wrapper):
                 info = dict(info)
                 info["death"] = True
 
-        if info.get("game_mode", False) == 13:
+        if info.get("game_mode", False) == 12:
             terminated = True
 
         return obs, reward, terminated, truncated, info
