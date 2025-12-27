@@ -30,12 +30,12 @@ os.makedirs(VIDEO_DIR, exist_ok=True)
 # ================= 設定區 =================
 PSVD_DIR = "./runs_smw/preserved/"
 
-target_numbers = list(range(146, 160))
+target_numbers = list(range(195, 198))
 # target_numbers = [156]
 
 def coin_score():
     for num in target_numbers:
-        model_path = os.path.join(CKPT_DIR, f"Nature_{num}.zip")
+        model_path = os.path.join(CKPT_DIR, f"ContiN_{num}.zip")
 
         if not os.path.exists(model_path):
             # print(f"⚠️ 找不到檔案: {model_path}，跳過。")
