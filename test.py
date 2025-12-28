@@ -30,7 +30,7 @@ os.makedirs(VIDEO_DIR, exist_ok=True)
 # ================= 設定區 =================
 PSVD_DIR = "./runs_smw/preserved/"
 
-target_numbers = list(range(195, 198))
+target_numbers = list(range(157, 199))
 # target_numbers = [156]
 
 def coin_score():

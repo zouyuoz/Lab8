@@ -213,7 +213,7 @@ class ExtraInfoWrapper(gym.Wrapper):
         if stomped is not None:
             info["stomped"] = stomped
         if spin_jump is not None:
-            info["sjf"] = spin_jump
+            info["SJF"] = spin_jump
 
         return info
 
@@ -346,7 +346,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         # 5. Reward for score increments
         score = info.get("score", 0)
         stomped_counter = info.get("stomped", 0)
-        is_spin_jump = info.get("sjf")
+        is_spin_jump = info.get("SJF")
 
         dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
         if dScore > 0:
