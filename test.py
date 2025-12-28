@@ -15,7 +15,7 @@ N_ENVS = 16
 # Evaluation & Recording Settings
 EVAL_EPISODES = 3
 EVAL_MAX_STEPS = 18000
-RECORD_STEPS = 1200
+RECORD_STEPS = 500
 
 # Directories
 LOG_DIR = "./runs_smw"
@@ -30,12 +30,12 @@ os.makedirs(VIDEO_DIR, exist_ok=True)
 # ================= 設定區 =================
 PSVD_DIR = "./runs_smw/preserved/"
 
-target_numbers = list(range(157, 199))
-# target_numbers = [156]
+# target_numbers = list(range(157, 199))
+target_numbers = [76]
 
 def coin_score():
     for num in target_numbers:
-        model_path = os.path.join(CKPT_DIR, f"ContiN_{num}.zip")
+        model_path = os.path.join(PSVD_DIR, f"Dec22A_{num}.zip")
 
         if not os.path.exists(model_path):
             # print(f"⚠️ 找不到檔案: {model_path}，跳過。")
@@ -78,7 +78,7 @@ from eval import record_video
 
 def generate_video():
     for num in target_numbers:
-        model_path = os.path.join(CKPT_DIR, f"Nature_{num}.zip")
+        model_path = os.path.join(PSVD_DIR, f"Dec22A_{num}.zip")
 
         # 檢查檔案是否存在
         if not os.path.exists(model_path):
@@ -103,7 +103,7 @@ def generate_video():
                 out_dir=VIDEO_DIR,
                 video_len=RECORD_STEPS,
                 prefix=prefix_name,
-                record=True
+                # record=True
             )
             print(f"✅ 完成！影片已儲存為 {prefix_name}.mp4")
 
@@ -113,5 +113,5 @@ def generate_video():
     print("\n所有測試結束。")
     
 if __name__ == '__main__':
-    # generate_video()
-    coin_score()
+    generate_video()
+    # coin_score()

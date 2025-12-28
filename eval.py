@@ -29,7 +29,7 @@ def evaluate_policy(model: CustomPPO, game: str, state: str, n_episodes: int, ma
     best_ret = float(np.max(returns)) if returns else 0.0
     return mean_ret, best_ret
 
-def _format_info(info: dict, max_len: int = 48) -> str:
+def _format_info(info: dict, max_len: int = 50) -> str:
     if not isinstance(info, dict) or not info:
         return "{}"
     lines = []
@@ -40,9 +40,14 @@ def _format_info(info: dict, max_len: int = 48) -> str:
         if key == "y_pos": key = "Y"
         if key == "time_left": key = "CLK"
         if key == "game_mode": key = "GM"
+        if key == "anime": key = "ANM"
+        if key == "stomped": key = "STP"
+        if key == "in_air": key = "IA"
         if key == "is_cleared": continue
         if key == "lives": continue
         if key == "inter_frames": continue
+        if key == "vx": continue
+        if key == "vy": continue
         # if key == "sprites": continue
 
         fragment = f"{key}={value}"

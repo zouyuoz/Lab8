@@ -101,7 +101,6 @@ class LifeTerminationWrapper(gym.Wrapper):
             if lives < self._prev_lives:
                 died = True
         self._prev_lives = lives
-        if info.get("anime", 0x00) == 0x09: terminated = True
 
         if died:
             terminated = True
@@ -133,6 +132,10 @@ class ExtraInfoWrapper(gym.Wrapper):
     ANIMATION  = 0x0071
     SPIN_JUMP  = 0x140D
     STOMPED_COUNTER = 0x1697 # Consecutive enemies stomped.
+
+    IN_AIR  = 0x0072
+    X_SPEED = 0x007B
+    Y_SPEED = 0x007D
 
     def __init__(self, env):
         super().__init__(env)
@@ -180,7 +183,21 @@ class ExtraInfoWrapper(gym.Wrapper):
 
     def _read_spin_jump(self, ram):
         if ram is None: return False
-        return int(ram[self.SPIN_JUMP]) != 0
+        return int(ram[self.SPIN_JUMP])
+
+    def _read_in_air(self, ram):
+        if ram is None: return False
+        return int(ram[self.IN_AIR])
+
+    def _read_x_speed(self, ram):
+        if ram is None: return False
+        val = int(ram[self.X_SPEED])
+        return val if val <= 127 else val - 256
+
+    def _read_y_speed(self, ram):
+        if ram is None: return False
+        val = int(ram[self.Y_SPEED])
+        return val if val <= 127 else val - 256
 
     def _inject_extra(self, info):
         ram       = self._get_ram()
@@ -191,6 +208,9 @@ class ExtraInfoWrapper(gym.Wrapper):
         anime     = self._read_animation(ram)
         spin_jump = self._read_spin_jump(ram)
         stomped   = self._read_stomped_counter(ram)
+        in_air    = self._read_in_air(ram)
+        x_speed   = self._read_x_speed(ram)
+        y_speed   = self._read_y_speed(ram)
 
         if time_left is None and x_pos is None:
             return info
@@ -215,6 +235,12 @@ class ExtraInfoWrapper(gym.Wrapper):
             info["stomped"] = stomped
         if spin_jump is not None:
             info["SJF"] = spin_jump
+        if x_speed is not None:
+            info["vx"] = x_speed
+        if y_speed is not None:
+            info["vy"] = y_speed
+        if in_air is not None:
+            info["in_air"] = in_air
 
         return info
 
@@ -278,7 +304,10 @@ class RewardOverrideWrapper(gym.Wrapper):
     Replace environment reward with custom shaping
     """
 
-    def __init__(self, env):
+    def __init__(
+        self,
+        env,
+    ):
         super().__init__(env)
         self._prev_score = 0
         self._prev_x = None
@@ -396,13 +425,16 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward += dCoin # usually increase by 1
             self._prev_coin = coin
 
-        # 8. Death, Run-out-time Penalty
+        # 8. Death & Win Handling
+        if anime == 0x09:
+            reward -= 10.0
+
+        # 9. Run-out-time Penalty
         time_up = game_mode == 0x15 or game_mode == 0x16 or game_mode == 0x17
         time_left = info.get("time_left")
-        if time_up:
-            reward = -5.0
+        if time_up and time_left == 0:
+            reward = -10.0
             terminated = True
-            if time_left == 0: reward = -5.0
 
         if terminated or truncated:
             self._reset_trackers(info)
