@@ -101,6 +101,7 @@ class LifeTerminationWrapper(gym.Wrapper):
             if lives < self._prev_lives:
                 died = True
         self._prev_lives = lives
+        if info.get("anime", 0x00) == 0x09: terminated = True
 
         if died:
             terminated = True
@@ -277,18 +278,12 @@ class RewardOverrideWrapper(gym.Wrapper):
     Replace environment reward with custom shaping
     """
 
-    def __init__(
-        self,
-        env,
-        win_reward: float = 10.0,
-    ):
+    def __init__(self, env):
         super().__init__(env)
-        self.win_reward = win_reward
         self._prev_score = 0
         self._prev_x = None
         self._prev_y = None
         self._prev_coin = None
-        self.cumu_reward = 0.0
         self.stuck_counter = 0 # add penalty when stuck in wall
         self.gate_remained = 2 # there are two blocks
 
@@ -296,7 +291,6 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_score = info.get("score", 0)
         self._prev_x = info.get("x_pos", 0)
         self._prev_y = info.get("y_pos", 315)
-        self.cumu_reward = 0.0
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
@@ -311,8 +305,10 @@ class RewardOverrideWrapper(gym.Wrapper):
             info = {}
 
         # if win, immediately return
-        if info.get("game_mode", False) == 12:
-            return obs, self.win_reward, True, truncated, info
+        game_mode = info.get("game_mode", 0x14)
+        anime = info.get("anime", 0x00)
+        if game_mode == 0x0C:
+            return obs, 0.0, True, truncated, info
 
         reward = 0.0 # resets reward in this frame
 
@@ -323,7 +319,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         if dx != 0: self.stuck_counter = 0
         if dx > 0:
             # reward += dx * 0.02
-            reward += dx * 0.0075 if action not in [10, 11] else dx * 0.005
+            reward += dx * 0.01 if action not in [10, 11] else dx * 0.008
         self._prev_x = x_pos
 
         # 2. Encourage agent to jump
@@ -341,7 +337,7 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward -= 0.02
 
         # 4. Time Penalty
-        if info.get("anime") != 2: reward -= 0.01
+        if anime != 0x02: reward -= 0.01 # 02: get mushroom animation
 
         # 5. Reward for score increments
         score = info.get("score", 0)
@@ -351,11 +347,11 @@ class RewardOverrideWrapper(gym.Wrapper):
         dScore = score - self._prev_score # 5, 10, 20, 40, 80, 100
         if dScore > 0:
             # 5-1: distroy secret tunnel surface
-            if dScore == 5 and (x_pos < 2000): #
+            if dScore == 5 and (x_pos < 4500): #
                 self.gate_remained -= 1
-                reward += 1
+                reward += 5
             else:
-                base_score_reward = 0.01 * dScore
+                base_score_reward = 0.1 * dScore
                 # 5-2: Stomp Reward
                 # stomped_counter != 0 indicates the score source is defeating enemy
                 if stomped_counter != 0:
@@ -363,9 +359,9 @@ class RewardOverrideWrapper(gym.Wrapper):
                     if dx <= 5: base_score_reward += (10 - dx)*0.01
 
                     # 5-2-2: Spin Jump Penalty (can't get second state score)
-                    if is_spin_jump: base_score_reward *= 0.625
+                    if is_spin_jump: base_score_reward *= 0.8
                     # 5-2-3: Normal Jump Reward
-                    else: base_score_reward += 0.25
+                    else: base_score_reward *= 1.25
 
                 if stomped_counter >= 2:
                     base_score_reward *= (stomped_counter**1.2851) # 6^1.2851 ~= 10
@@ -374,21 +370,21 @@ class RewardOverrideWrapper(gym.Wrapper):
             self._prev_score = score
 
         # 6. Secret tunnel
-        is_in_pipe = info.get("anime", False) == 6 # 6: 進; 5: 出
-        destroying_gate = (
-            (1900 < x_pos < 1930) and
-            ( 280 < y_pos <  295) and
-            is_spin_jump and
-            self.gate_remained != 0
-        )
-        if destroying_gate: reward += 0.5
-        into_pipe = (
-            (1910 < x_pos < 1920) and
-            y_pos > 300 and
-            action == 3 # 'Down'(squat)
-        )
-        if into_pipe: reward += 0.025
-        if into_pipe and dy != 0: reward += 0.475
+        is_in_pipe = anime == 0x06 # 6: enter a vertical pip; 5: enter a horizontal pip
+        # destroying_gate = (
+        #     (1900 < x_pos < 1930) and
+        #     ( 280 < y_pos <  295) and
+        #     is_spin_jump and
+        #     self.gate_remained != 0
+        # )
+        # if destroying_gate: reward += 0.5
+        # into_pipe = (
+        #     (1910 < x_pos < 1920) and
+        #     y_pos > 300 and
+        #     action == 3 # 'Down'(squat)
+        # )
+        # if into_pipe: reward += 0.025
+        # if into_pipe and dy != 0: reward += 0.475
         if is_in_pipe: reward += 0.5
 
         # 7. Coin Reward
@@ -400,20 +396,13 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward += dCoin # usually increase by 1
             self._prev_coin = coin
 
-        # 8. Death & Win Handling
-        if info.get("death", False):
-            reward -= 10.0
-        elif terminated and not truncated:
-            reward += self.win_reward
-
-        self.cumu_reward += reward
-
-        # 9. Run-out-time Penalty
+        # 8. Death, Run-out-time Penalty
+        time_up = game_mode == 0x15 or game_mode == 0x16 or game_mode == 0x17
         time_left = info.get("time_left")
-        is_cleared = info.get("game_mode", False) == 12
-        if time_left == 0 and not is_cleared:
-            reward = -10.0
+        if time_up:
+            reward = -5.0
             terminated = True
+            if time_left == 0: reward = -5.0
 
         if terminated or truncated:
             self._reset_trackers(info)
