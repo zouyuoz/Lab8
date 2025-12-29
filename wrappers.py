@@ -314,6 +314,7 @@ class RewardOverrideWrapper(gym.Wrapper):
         self._prev_y = None
         self._prev_coin = None
         self.stuck_counter = 0 # add penalty when stuck in wall
+        self.in_air_counter = 0
         self.gate_remained = 2 # there are two blocks
 
     def _reset_trackers(self, info):
@@ -343,12 +344,13 @@ class RewardOverrideWrapper(gym.Wrapper):
 
         # 1. Distance reward
         x_pos = info.get("x_pos", 0)
+        vx = info.get("vx", 0)
         dx = x_pos - self._prev_x
 
         if dx != 0: self.stuck_counter = 0
         if dx > 0:
             # reward += dx * 0.02
-            reward += dx * 0.01 if action not in [10, 11] else dx * 0.008
+            reward += vx * 0.001 if action not in [10, 11] else vx * 0.00055
         self._prev_x = x_pos
 
         # 2. Encourage agent to jump
@@ -359,6 +361,9 @@ class RewardOverrideWrapper(gym.Wrapper):
             reward += 1 / max(y_pos, 125)
             self.stuck_counter = 0
         self._prev_y = y_pos
+
+        is_in_air = info.get("in_air", 0x00)
+        self.in_air_counter = self.in_air_counter + 1 if is_in_air else 0
 
         # 3. Stuck Penalty
         if dx == 0 and dy == 0: self.stuck_counter += 1
@@ -378,14 +383,14 @@ class RewardOverrideWrapper(gym.Wrapper):
             # 5-1: distroy secret tunnel surface
             if dScore == 5 and (x_pos < 4500): #
                 self.gate_remained -= 1
-                reward += 5
+                reward += 1
             else:
-                base_score_reward = 0.1 * dScore
+                base_score_reward = 0.01 * dScore
                 # 5-2: Stomp Reward
                 # stomped_counter != 0 indicates the score source is defeating enemy
                 if stomped_counter != 0:
                     # 5-2-1: Slow Down Reward
-                    if dx <= 5: base_score_reward += (10 - dx)*0.01
+                    if vx <= 10: base_score_reward *= (((10 - vx)*0.005) + 1)
 
                     # 5-2-2: Spin Jump Penalty (can't get second state score)
                     if is_spin_jump: base_score_reward *= 0.8
@@ -393,7 +398,9 @@ class RewardOverrideWrapper(gym.Wrapper):
                     else: base_score_reward *= 1.25
 
                 if stomped_counter >= 2:
-                    base_score_reward *= (stomped_counter**1.2851) # 6^1.2851 ~= 10
+                    base_score_reward *= (stomped_counter + 11)/12
+                if self.in_air_counter >= 1:
+                    base_score_reward *= (0.01614*(self.in_air_counter**0.5) + 1)
                 reward += base_score_reward
 
             self._prev_score = score
@@ -426,8 +433,7 @@ class RewardOverrideWrapper(gym.Wrapper):
             self._prev_coin = coin
 
         # 8. Death & Win Handling
-        if anime == 0x09:
-            reward -= 10.0
+        # if anime == 0x09: reward -= 10.0
 
         # 9. Run-out-time Penalty
         time_up = game_mode == 0x15 or game_mode == 0x16 or game_mode == 0x17

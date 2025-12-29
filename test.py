@@ -15,12 +15,13 @@ N_ENVS = 16
 # Evaluation & Recording Settings
 EVAL_EPISODES = 3
 EVAL_MAX_STEPS = 18000
-RECORD_STEPS = 500
+RECORD_STEPS = 960
 
 # Directories
 LOG_DIR = "./runs_smw"
 VIDEO_DIR       = os.path.join(LOG_DIR, "videos")
 CKPT_DIR        = os.path.join(LOG_DIR, "checkpoints")
+PSVD_DIR        = os.path.join(LOG_DIR, "preserved")
 TENSORBOARD_LOG = os.path.join(LOG_DIR, "tb")
 
 os.makedirs(LOG_DIR,   exist_ok=True)
@@ -28,14 +29,15 @@ os.makedirs(CKPT_DIR,  exist_ok=True)
 os.makedirs(VIDEO_DIR, exist_ok=True)
 
 # ================= 設定區 =================
-PSVD_DIR = "./runs_smw/preserved/"
-
+# DIR = CKPT_DIR
+DIR = PSVD_DIR
+label = 'ContiN'
 # target_numbers = list(range(157, 199))
-target_numbers = [76]
+target_numbers = [158]
 
 def coin_score():
     for num in target_numbers:
-        model_path = os.path.join(PSVD_DIR, f"Dec22A_{num}.zip")
+        model_path = os.path.join(DIR, f"{label}_{num}.zip")
 
         if not os.path.exists(model_path):
             # print(f"⚠️ 找不到檔案: {model_path}，跳過。")
@@ -78,7 +80,7 @@ from eval import record_video
 
 def generate_video():
     for num in target_numbers:
-        model_path = os.path.join(PSVD_DIR, f"Dec22A_{num}.zip")
+        model_path = os.path.join(DIR, f"{label}_{num}.zip")
 
         # 檢查檔案是否存在
         if not os.path.exists(model_path):
@@ -103,7 +105,7 @@ def generate_video():
                 out_dir=VIDEO_DIR,
                 video_len=RECORD_STEPS,
                 prefix=prefix_name,
-                # record=True
+                record=True
             )
             print(f"✅ 完成！影片已儲存為 {prefix_name}.mp4")
 
@@ -111,7 +113,11 @@ def generate_video():
             print(f"❌ 發生錯誤 (Model: {num}): {e}")
 
     print("\n所有測試結束。")
-    
+
+from IPython.display import Video
+
 if __name__ == '__main__':
-    generate_video()
+    video = "./runs_smw/videos/test_158.mp4"
+    display(Video(video, embed=True, width=768))
+    # generate_video()
     # coin_score()
